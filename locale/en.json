@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DSH-SYNC",
+    "description": "Align this machine's third-party plugin inventory — install source, exact version, enabled state — across machines over WebDAV or Git. Per-plugin comparison with install and upgrade, and an upload-only, download-only or two-way union direction. No deletions, no downgrades, no source switching; plugin sources, DSH settings, credentials and sessions are never uploaded."
+  }
+}

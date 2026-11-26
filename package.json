@@ -1,0 +1,25 @@
+{
+  "name": "@kamisangk/dsh-sync",
+  "version": "0.1.0",
+  "description": "Synchronize DeepSeek Harness plugin inventories over WebDAV or Git.",
+  "license": "Apache-2.0",
+  "repository": "github:kamisangk/dsh-sync",
+  "type": "module",
+  "engines": { "node": ">=22", "dsh": ">=0.2.2-rc.5 <0.3.0-0" },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.png"
+  },
+  "files": ["index.js", "lib", "client.js", "cordis.patch.yml", "locale", "icon.png", "README.md", "LICENSE"],
+  "scripts": { "test": "node --test", "smoke": "node scripts/client-smoke.mjs" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-client-locale"]
+    }
+  }
+}
