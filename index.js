@@ -26,7 +26,8 @@ export function splitWebdavUrl(value) {
     if (parsed.protocol !== 'https:') return {address: text, dir: ''};
     let dir = parsed.pathname;
     try { dir = decodeURIComponent(dir); } catch { /* keep the encoded path */ }
-    return {address: parsed.origin, dir: dir.replace(/^\/+|\/+$/g, '')};
+    // A root path means "no folder"; every other path is kept exactly as written, slashes included.
+    return {address: parsed.origin, dir: dir === '/' ? '' : dir};
   } catch {
     return {address: text, dir: ''};
   }
@@ -34,8 +35,11 @@ export function splitWebdavUrl(value) {
 
 export function composeWebdavUrl(address, dir) {
   const base = typeof address === 'string' ? address.trim().replace(/\/+$/, '') : '';
-  const path = typeof dir === 'string' ? dir.trim().replace(/^\/+|\/+$/g, '') : '';
-  return path ? `${base}/${path}` : base;
+  const path = typeof dir === 'string' ? dir.trim() : '';
+  if (!path) return base;
+  // The folder keeps the slashes the user typed: a leading slash is the separator. A folder typed
+  // without one is still relative to the address, so old records keep working.
+  return path.startsWith('/') ? `${base}${path}` : `${base}/${path}`;
 }
 
 function publicSettings(settings, state) {
@@ -59,12 +63,22 @@ export function syncService(manager, credentials, connect = createDav, connectGi
     const url = typeof saved.url === 'string' && saved.url ? saved.url : composeWebdavUrl(address, dir);
     return {...DEFAULTS, ...saved, address, dir, url, git: {...GIT_DEFAULTS, ...git?.payload}, transport: target?.payload?.transport === 'git' ? 'git' : 'webdav'};
   };
-  const stateKey = settings => 'kamisangk-dsh-sync/state-' + createHash('sha256')
+  const stateKeyFor = (settings, url) => 'kamisangk-dsh-sync/state-' + createHash('sha256')
     .update(JSON.stringify([process.env.DSH_PROFILE_DIR ?? process.env.DSH_PROFILE ?? '', ...(
-      settings.transport === 'git' ? ['git', settings.git.repo, settings.git.branch] : [settings.url, settings.username])])).digest('hex');
-  const readState = async key => {
-    const value = (await credentials.readRecord(key))?.payload;
-    return value?.version === 1 ? value : {version: 1, baseline: [], overview: {}};
+      settings.transport === 'git' ? ['git', settings.git.repo, settings.git.branch] : [url, settings.username])])).digest('hex');
+  // A folder ending in a slash names the same collection, so the key ignores trailing slashes.
+  const stateKey = settings => stateKeyFor(settings, String(settings.url ?? '').replace(/\/+$/, ''));
+  // Records written before that normalization were keyed on the URL's exact text, trailing slash included.
+  const legacyStateKey = settings => stateKeyFor(settings, settings.url);
+  const readState = async settings => {
+    const keys = [stateKey(settings)];
+    const legacy = legacyStateKey(settings);
+    if (legacy !== keys[0]) keys.push(legacy);
+    for (const key of keys) {
+      const value = (await credentials.readRecord(key))?.payload;
+      if (value?.version === 1) return value;
+    }
+    return {version: 1, baseline: [], overview: {}};
   };
   const reconcile = (here, entries, state) => {
     return planReconciliation(here, entries, state.baseline);
@@ -155,7 +169,7 @@ export function syncService(manager, credentials, connect = createDav, connectGi
     try {
       const settings = await readSettings();
       const key = stateKey(settings);
-      const state = await readState(key);
+      const state = await readState(settings);
       const direction = state.direction ?? 'both';
       const mayUpload = direction !== 'download';
       const mayDownload = direction !== 'upload';
@@ -192,7 +206,7 @@ export function syncService(manager, credentials, connect = createDav, connectGi
           await credentials.modifyRecord(TARGET_KEY, () => ({kind: 'grant', payload: {transport: 'git'}}));
           plan = undefined;
           const next = {...settings, git: updated, transport: 'git'};
-          return publicSettings(next, await readState(stateKey(next)));
+          return publicSettings(next, await readState(next));
         }
         const {url, address, dir, username, password, retention, autoApply} = input;
         const suppliedUrl = typeof url === 'string' ? url.trim() : '';
@@ -208,7 +222,7 @@ export function syncService(manager, credentials, connect = createDav, connectGi
           throw new RequestError('Invalid WebDAV settings.');
         }
         const cleanAddress = parts.address.trim().replace(/\/+$/, '');
-        const cleanDir = parts.dir.trim().replace(/^\/+|\/+$/g, '');
+        const cleanDir = parts.dir.trim();
         // A dot segment would silently resolve somewhere else once the URL is parsed.
         if (cleanDir.split('/').some(segment => segment === '.' || segment === '..')) throw new RequestError('Invalid WebDAV folder path.');
         const cleanUrl = composeWebdavUrl(cleanAddress, cleanDir);
@@ -229,7 +243,7 @@ export function syncService(manager, credentials, connect = createDav, connectGi
         await credentials.modifyRecord(TARGET_KEY, () => ({kind: 'grant', payload: {transport: 'webdav'}}));
         plan = undefined;
         const next = {...settings, ...updated, transport: 'webdav'};
-        return publicSettings(next, await readState(stateKey(next)));
+        return publicSettings(next, await readState(next));
       }
       const isGit = settings.transport === 'git';
       const autoApply = isGit ? settings.git.autoApply : settings.autoApply;

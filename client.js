@@ -350,7 +350,8 @@ window.__ModuleLoader__.load({
         if (parsed.protocol !== 'https:') return {address: text, dir: ''};
         let dir = parsed.pathname;
         try { dir = decodeURIComponent(dir); } catch { /* keep the encoded path */ }
-        return {address: parsed.origin, dir: dir.replace(/^\/+|\/+$/g, '')};
+        // A root path means "no folder"; every other path is kept exactly as written, slashes included.
+        return {address: parsed.origin, dir: dir === '/' ? '' : dir};
       } catch {
         return {address: text, dir: ''};
       }
@@ -891,7 +892,7 @@ window.__ModuleLoader__.load({
               h('button', {type: 'button', 'aria-pressed': git, disabled: !!busy, onClick: () => chooseTransport('git')}, t('transport_git')))),
           !git && h('div', {className: 'kds-fields'},
             input('webdav_address', 'address', {type: 'text', placeholder: 'https://webdav.example.com/dav'}),
-            input('webdav_dir', 'dir', {type: 'text', placeholder: 'dsh-sync'}),
+            input('webdav_dir', 'dir', {type: 'text', placeholder: '/dsh-sync'}),
             input('webdav_username', 'username', {autoComplete: 'off'}),
             h('label', {className: 'kds-field'}, t('webdav_password'),
               h('input', {type: 'password', value: draft.password, disabled: !!busy, autoComplete: 'new-password',

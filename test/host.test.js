@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { composeWebdavUrl, splitWebdavUrl, syncService } from '../index.js';
 
@@ -232,12 +233,16 @@ test('disabling drops the bundle layer and reports the change', async () => {
 });
 
 test('the URL split and join cover the shapes a user types', () => {
-  assert.deepEqual(splitWebdavUrl('https://dav.example/a/b/'), {address: 'https://dav.example', dir: 'a/b'});
+  assert.deepEqual(splitWebdavUrl('https://dav.example/a/b/'), {address: 'https://dav.example', dir: '/a/b/'});
   assert.deepEqual(splitWebdavUrl('https://dav.example'), {address: 'https://dav.example', dir: ''});
+  assert.deepEqual(splitWebdavUrl('https://dav.example/'), {address: 'https://dav.example', dir: ''});
   assert.deepEqual(splitWebdavUrl('https://dav.example/my%20folder/%E5%AD%98/'),
-    {address: 'https://dav.example', dir: 'my folder/存'});
+    {address: 'https://dav.example', dir: '/my folder/存/'});
   assert.deepEqual(splitWebdavUrl(''), {address: '', dir: ''});
-  assert.equal(composeWebdavUrl('https://dav.example/dav/', '/team/sync/'), 'https://dav.example/dav/team/sync');
+  assert.equal(composeWebdavUrl('https://dav.example/dav/', '/team/sync/'), 'https://dav.example/dav/team/sync/');
+  assert.equal(composeWebdavUrl('https://dav.example/dav', '/team/sync'), 'https://dav.example/dav/team/sync');
+  assert.equal(composeWebdavUrl('https://dav.example/dav', 'team/sync'), 'https://dav.example/dav/team/sync',
+    'a folder typed without a leading slash is still relative to the address');
   assert.equal(composeWebdavUrl('https://dav.example', ''), 'https://dav.example');
 });
 
@@ -245,13 +250,20 @@ test('WebDAV saves the address and folder as separate fields', async () => {
   const {op, save, records} = fixture();
   const saved = await save({url: undefined, address: 'https://dav.example/dav/', dir: '/team/sync/'});
   assert.equal(saved.address, 'https://dav.example/dav');
-  assert.equal(saved.dir, 'team/sync');
-  assert.equal(saved.url, 'https://dav.example/dav/team/sync');
+  assert.equal(saved.dir, '/team/sync/', 'the folder keeps the slashes the user typed');
+  assert.equal(saved.url, 'https://dav.example/dav/team/sync/');
   assert.equal(records.get('kamisangk-dsh-sync/webdav').payload.address, 'https://dav.example/dav');
+  assert.equal(records.get('kamisangk-dsh-sync/webdav').payload.dir, '/team/sync/');
   await op({action: 'direction', direction: 'upload'});
-  const next = await save({url: undefined, address: 'https://dav.example/dav', dir: 'team/sync', password: 'test-password-2'});
-  assert.equal(next.url, 'https://dav.example/dav/team/sync');
+  const next = await save({url: undefined, address: 'https://dav.example/dav', dir: '/team/sync/', password: 'test-password-2'});
+  assert.equal(next.dir, '/team/sync/');
+  assert.equal(next.url, 'https://dav.example/dav/team/sync/');
   assert.equal(next.direction, 'upload', 'the same address and folder keep the saved state');
+  // A folder typed without the leading slash composes the same collection and keeps the same state.
+  const relative = await save({url: undefined, address: 'https://dav.example/dav', dir: 'team/sync'});
+  assert.equal(relative.dir, 'team/sync', 'the stored folder stays exactly as typed');
+  assert.equal(relative.url, 'https://dav.example/dav/team/sync');
+  assert.equal(relative.direction, 'upload', 'the folder spelling does not reset the target state');
 });
 
 test('a legacy single-URL record keeps its state key after the split', async () => {
@@ -261,10 +273,25 @@ test('a legacy single-URL record keeps its state key after the split', async () 
   }});
   const status = await op({action: 'status'});
   assert.equal(status.address, 'https://dav.example');
-  assert.equal(status.dir, 'sync');
+  assert.equal(status.dir, '/sync/');
   assert.equal(status.url, 'https://dav.example/sync/');
   await op({action: 'direction', direction: 'download'});
   const saved = await save({password: undefined});
   assert.equal(saved.url, 'https://dav.example/sync/', 'the stored URL string is preserved');
   assert.equal(saved.direction, 'download', 'the state record still maps to this target');
+});
+
+test('state keyed on the URL text with a trailing slash is still found and migrated', async () => {
+  const {op, records, save} = fixture();
+  const profile = process.env.DSH_PROFILE_DIR ?? process.env.DSH_PROFILE ?? '';
+  const keyOf = url => 'kamisangk-dsh-sync/state-' + createHash('sha256')
+    .update(JSON.stringify([profile, url, 'me'])).digest('hex');
+  records.set(keyOf('https://dav.example/sync/'),
+    {kind: 'grant', payload: {version: 1, direction: 'download', baseline: [], overview: {}}});
+  const status = await save();
+  assert.equal(status.direction, 'download', 'the old key is read when the normalized key is absent');
+  assert.equal(records.has(keyOf('https://dav.example/sync')), false);
+  await op({action: 'direction', direction: 'upload'});
+  assert.equal(records.get(keyOf('https://dav.example/sync')).payload.direction, 'upload',
+    'the next write lands on the normalized key');
 });

@@ -77,7 +77,7 @@ const settings = {
   transport: 'webdav',
   url: 'https://dav.example/dav/sync',
   address: 'https://dav.example/dav',
-  dir: 'sync',
+  dir: '/sync',
   username: 'user',
   passwordSet: true,
   retention: '10',
@@ -92,7 +92,7 @@ const draft = {...settings, password: '', git: {...settings.git, token: ''}};
 
 render({0: 'connection', 1: settings, 2: draft, 8: ''});
 if (!hasInput(settings.address) || !hasInput(settings.dir)) throw new Error('the connection page did not bind the address and folder fields');
-if (!hasPlaceholder('https://webdav.example.com/dav') || !hasPlaceholder('dsh-sync')) {
+if (!hasPlaceholder('https://webdav.example.com/dav') || !hasPlaceholder('/dsh-sync')) {
   throw new Error('the address and folder inputs are missing');
 }
 flush('WebDAV connection page');
