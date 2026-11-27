@@ -84,7 +84,7 @@ test('lock mode is detected when ETag preconditions are ignored, and unions addi
   assert.equal(await dav.mode(), 'lock')
   const a = npm('a')
   assert.deepEqual(await dav.publish([a]), { entries: [a], added: 1, historyCount: 0 })
-  assert.deepEqual(await dav.publish([npm('b')]), { entries: [a, npm('b')], added: 1, historyCount: 1 })
+  assert.deepEqual(await dav.publish([npm('b')]), { entries: [a, npm('b')], added: 1, historyCount: 0 })
   for (const write of server.manifestWrites()) assert.match(write.headers.get('if'), /^[(]<[0-9]+>[)]$/)
   assert.equal(server.locks.size, 0, 'every lock is released')
   assert.equal(server.files.get(manifestPath).body.includes('dsh-sync-probe'), false)
@@ -97,7 +97,7 @@ test('concurrent publishers serialize through the lock and keep both additions',
   const [a, b] = await Promise.all([first.publish([npm('a')]), second.publish([npm('b')])])
   assert.equal(a.added + b.added, 2)
   assert.deepEqual((await first.read()).entries.map(entry => entry.name), ['a', 'b'])
-  assert.equal((await first.read()).historyCount, 1)
+  assert.equal((await first.read()).historyCount, 0)
 })
 
 test('a publisher backs off while another device holds the lock', { timeout: 10_000 }, async () => {

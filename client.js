@@ -13,13 +13,13 @@ window.__ModuleLoader__.load({
     ];
     // Which view reports the outcome of an action: configuring is a connection
     // matter, syncing is not. Status checks follow whichever view is open.
-    const NOTICE_PAGE = {save: 'connection', test: 'connection', direction: 'sync', preview: 'sync', sync: 'sync', apply: 'sync', resolve: 'sync'};
+    const NOTICE_PAGE = {save: 'connection', test: 'connection', direction: 'sync', preview: 'sync', sync: 'sync', apply: 'sync', resolve: 'sync', restore: 'sync', backup_create: 'sync', backup_delete: 'sync'};
     const SCOPES = [
       {id: 'plugins', enabled: true},
-      {id: 'settings', enabled: false},
-      {id: 'models', enabled: false},
-      {id: 'mcp', enabled: false},
-      {id: 'skills', enabled: false},
+      {id: 'settings', enabled: true},
+      {id: 'models', enabled: true},
+      {id: 'mcp', enabled: true},
+      {id: 'skills', enabled: true},
     ];
 
     const english = {
@@ -35,6 +35,9 @@ window.__ModuleLoader__.load({
       badge_reserved: 'Not available yet',
       badge_unconfigured: 'Not configured',
       meta_plugins: '{local} plugins here · {remote} on the remote',
+      meta_items: '{local} items here · {remote} on the remote',
+      item_col: 'Item',
+      confirm_restore_module: 'Restore {category} items from backup {id}? Current local state is backed up first.',
       last_attempt: 'Last sync {time}',
       last_attempt_failed: 'Last attempt failed: {error}',
       never_synced: 'Not synced yet',
@@ -139,15 +142,32 @@ window.__ModuleLoader__.load({
       appliedStatus: 'Applied',
       installedStatus: 'Installed',
       backups: 'Backups',
-      backup_note: 'A copy of this machine is saved before every sync. The remote keeps the newest {retention}.',
+      backup_manager_title: 'Backup Data Management',
+      backup_manage: 'Manage Backups',
+      backup_now: 'Backup Now',
+      backup_created: 'Backup created.',
+      backup_note: 'A local copy is saved before every sync; remote backups are uploaded on changes and keep the newest {retention}.',
+      backup_filename: 'File Name',
+      backup_modified: 'Modified',
+      backup_size: 'Size',
+      backup_actions: 'Actions',
       backup_time: 'Time',
       backup_where: 'Where',
       backup_files: 'Files',
       backup_remote: 'Remote',
       backup_local_only: 'Local only',
-      backup_empty: 'No backups yet. Run a sync to create the first one.',
+      backup_empty: 'No backups yet. Run a sync or create a backup first.',
       backup_remote_failed: 'Remote backups could not be read: {error}',
       backup_unavailable: 'The remote index is unavailable; local copies can still be restored.',
+      backup_refresh: 'Refresh',
+      backup_delete: 'Delete',
+      backup_delete_selected: 'Delete Selected ({count})',
+      backup_deleted: 'Backup deleted.',
+      backup_select_all: 'Select all backups',
+      backup_select_one: 'Select backup {name}',
+      confirm_delete_backup: 'Delete backup {name}? This cannot be undone.',
+      confirm_delete_selected: 'Delete {count} selected backups? This cannot be undone.',
+      close: 'Close',
       restore: 'Restore',
       restored: 'Backup restored.',
       confirm_restore: 'Restore the plugins recorded in backup {id}? Plugins installed now that are not in that backup keep their current state.',
@@ -177,6 +197,9 @@ window.__ModuleLoader__.load({
       badge_reserved: '暂未开放',
       badge_unconfigured: '未配置',
       meta_plugins: '本机 {local} 个 · 远端 {remote} 个',
+      meta_items: '本机 {local} 项 · 远端 {remote} 项',
+      item_col: '配置项',
+      confirm_restore_module: '确定恢复备份 {id} 里的 {category} 配置吗？恢复前会自动备份当前本机状态。',
       last_attempt: '上次同步 {time}',
       last_attempt_failed: '上次失败：{error}',
       never_synced: '还没有同步过',
@@ -281,18 +304,35 @@ window.__ModuleLoader__.load({
       appliedStatus: '已应用',
       installedStatus: '已安装',
       backups: '备份',
-      backup_note: '每次同步前都会备份本机配置，远端保留最新的 {retention} 份。',
+      backup_manager_title: '备份数据管理',
+      backup_manage: '备份管理',
+      backup_now: '立即备份',
+      backup_created: '备份已创建。',
+      backup_note: '每次同步前都会先在本机备份，有实际变更时上传远端并保留最新 {retention} 份。',
+      backup_filename: '文件名',
+      backup_modified: '修改时间',
+      backup_size: '大小',
+      backup_actions: '操作',
       backup_time: '时间',
       backup_where: '位置',
       backup_files: '文件',
       backup_remote: '远端',
       backup_local_only: '仅本机',
-      backup_empty: '还没有备份，运行一次同步会创建第一份。',
+      backup_empty: '还没有备份，运行一次同步或点击「立即备份」即可创建。',
       backup_remote_failed: '读取远端备份失败：{error}',
       backup_unavailable: '远端索引不可用，本机副本仍可还原。',
-      restore: '还原',
-      restored: '备份已还原。',
-      confirm_restore: '还原备份 {id} 里的插件？当前已安装、但该备份里没有的插件会保持现状。',
+      backup_refresh: '刷新',
+      backup_delete: '删除',
+      backup_delete_selected: '删除选中 ({count})',
+      backup_deleted: '备份已删除。',
+      backup_select_all: '全选备份',
+      backup_select_one: '选择备份 {name}',
+      confirm_delete_backup: '确定删除备份 {name} 吗？删除后无法撤销。',
+      confirm_delete_selected: '确定删除选中的 {count} 份备份吗？删除后无法撤销。',
+      close: '关闭',
+      restore: '恢复',
+      restored: '备份已恢复。',
+      confirm_restore: '确定恢复备份 {id} 里的插件吗？当前已安装、但该备份里没有的插件会保持现状。',
       restore_kept: '该备份未包含，保持现状。',
       failed: '失败',
       cancelled: '已取消',
@@ -358,6 +398,20 @@ window.__ModuleLoader__.load({
       .kds-sync tbody tr:last-child td{border-block-end:0}
       .kds-sync td small{display:block;margin-top:4px;color:var(--dsw-alias-label-secondary)}
       .kds-sync .kds-endpoint{overflow-wrap:anywhere}
+      .kds-sync .kds-error{color:var(--dsw-alias-state-error-primary);font-size:12px}
+      .kds-sync button.kds-danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:rgba(220,38,38,.12)}
+      .kds-sync button.kds-danger:enabled:hover{background:rgba(220,38,38,.2)}
+      .kds-sync button.kds-link-btn{min-height:26px;padding:2px 6px;border-color:transparent;background:none;font-size:13px}
+      .kds-sync button.kds-link-danger{color:var(--dsw-alias-state-error-primary)}
+      .kds-sync .kds-modal-backdrop{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);display:grid;place-items:center;padding:20px}
+      .kds-sync .kds-modal{box-sizing:border-box;width:min(780px,100%);max-height:85vh;display:grid;grid-template-rows:auto auto 1fr auto;gap:12px;padding:18px 20px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 18px 48px rgba(0,0,0,.35);overflow:hidden}
+      .kds-sync .kds-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+      .kds-sync .kds-modal-head h3{font-size:16px;font-weight:600}
+      .kds-sync .kds-modal-close{min-height:28px;min-width:28px;padding:0;border-color:transparent;background:none;font-size:18px;line-height:1;color:var(--dsw-alias-label-secondary)}
+      .kds-sync .kds-modal-body{overflow:auto;min-height:0;display:grid;gap:10px;align-content:start}
+      .kds-sync .kds-modal-foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding-top:4px}
+      .kds-sync .kds-filename{max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle}
+      .kds-sync .kds-cell-name{display:flex;align-items:center;gap:6px;min-width:0}
       .kds-sync .kds-warn{color:var(--dsw-alias-state-warn-primary)}
       .kds-sync .kds-error{color:var(--dsw-alias-state-error-primary)}
     `;
@@ -443,6 +497,7 @@ window.__ModuleLoader__.load({
           autoApply: git.autoApply === true,
         },
         overview: value.overview && typeof value.overview === 'object' ? value.overview : null,
+        modules: value.modules && typeof value.modules === 'object' ? value.modules : {},
       };
     }
 
@@ -467,6 +522,22 @@ window.__ModuleLoader__.load({
         h('tbody', null, ...rows)));
     }
 
+    function formatBytes(bytes) {
+      if (!Number.isFinite(bytes) || bytes < 0) return '—';
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function formatDateTime(iso, fallback) {
+      if (!iso) return fallback || '—';
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return fallback || String(iso);
+      const pad = n => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+        `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
     // ---- page ---------------------------------------------------------
     function SettingsPage({locale, t}) {
       useSyncExternalStore(locale.subscribe.bind(locale), locale.getSnapshot.bind(locale));
@@ -483,6 +554,14 @@ window.__ModuleLoader__.load({
       const [message, setMessage] = useState('');
       const [error, setError] = useState('');
       const [noticePage, setNoticePage] = useState(null);
+      const [backupModalOpen, setBackupModalOpen] = useState(false);
+      const [backupCategory, setBackupCategory] = useState('plugins');
+      const [selectedBackups, setSelectedBackups] = useState(() => new Set());
+      const [modOverviews, setModOverviews] = useState({});
+      const [modPlans, setModPlans] = useState({});
+      const [modOpen, setModOpen] = useState({});
+      const [modSelected, setModSelected] = useState({});
+      const [modOutcomes, setModOutcomes] = useState({});
       const active = useRef(null);
       const id = useId();
 
@@ -492,7 +571,7 @@ window.__ModuleLoader__.load({
         if (draft.transport !== saved.transport) return true;
         if (draft.transport === 'git') {
           return ['repo', 'branch', 'auth', 'gitUsername', 'authorName', 'authorEmail'].some(key => draft.git[key] !== saved.git[key])
-            || !!draft.git.token || draft.git.autoApply !== saved.git.autoApply;
+            || !!draft.git.token || draft.git.autoApply !== saved.git.autoApply || draft.retention !== saved.retention;
         }
         return ['address', 'dir', 'username', 'retention'].some(key => draft[key] !== saved[key])
           || !!draft.password || draft.autoApply !== saved.webdavAutoApply;
@@ -507,6 +586,11 @@ window.__ModuleLoader__.load({
         setSaved(next);
         setDraft({...next, password: '', git: {...next.git, token: ''}});
         if (next.overview) setOverview(next.overview);
+        if (next.modules) {
+          const nextModOv = {};
+          for (const [k, v] of Object.entries(next.modules)) if (v?.overview) nextModOv[k] = v.overview;
+          setModOverviews(nextModOv);
+        }
         const targetChanged = !previous || previous.transport !== next.transport
           || (next.transport === 'git' ? previous.git.repo !== next.git.repo || previous.git.branch !== next.git.branch
             : previous.address !== next.address || previous.dir !== next.dir || previous.username !== next.username);
@@ -555,19 +639,60 @@ window.__ModuleLoader__.load({
 
       // Backup listing is secondary: a failure shows inside the card instead of
       // replacing the plugin status, and a stale list is better than none.
-      async function refreshBackups(signal) {
+      async function refreshBackups(signal, category = backupCategory) {
         try {
-          setBackups(await request('backups', {}, signal));
+          const result = await request('backups', {category}, signal);
+          setBackups(result);
+          const validIds = new Set((result?.items ?? []).map(item => item.id));
+          setSelectedBackups(previous => {
+            const next = new Set();
+            for (const itemId of previous) if (validIds.has(itemId)) next.add(itemId);
+            return next;
+          });
         } catch (cause) {
           if (!signal?.aborted) {
-            setBackups({snapshots: [], local: [], error: cause instanceof Error ? cause.message : 'requestFailed'});
+            setBackups({category, items: [], snapshots: [], local: [], error: cause instanceof Error ? cause.message : 'requestFailed'});
           }
         }
       }
 
-      function loadBackups() {
+      function loadBackups(category = backupCategory) {
         if (!configured) return;
-        void run('backups', signal => refreshBackups(signal));
+        void run('backups', signal => refreshBackups(signal, category));
+      }
+
+      function openBackupModal(category = 'plugins') {
+        if (!configured || dirty) return;
+        setBackupCategory(category);
+        setSelectedBackups(new Set());
+        setBackupModalOpen(true);
+        loadBackups(category);
+      }
+
+      function createBackupNow() {
+        if (blocked) return;
+        void run('backup_create', async signal => {
+          const result = await request('backup_create', {category: backupCategory}, signal);
+          if (result?.listing) setBackups(result.listing);
+          else await refreshBackups(signal, backupCategory);
+        }, 'backup_created');
+      }
+
+      function deleteBackups(ids, singleName) {
+        if (blocked || !ids.length) return;
+        const promptText = ids.length === 1
+          ? t('confirm_delete_backup').replace('{name}', singleName || ids[0])
+          : t('confirm_delete_selected').replace('{count}', String(ids.length));
+        if (!window.confirm(promptText)) return;
+        void run('backup_delete', async signal => {
+          const result = await request('backup_delete', {category: backupCategory, ids, deleteLocal: true}, signal);
+          if (result?.items) {
+            setBackups(result);
+            setSelectedBackups(new Set());
+          } else {
+            await refreshBackups(signal, backupCategory);
+          }
+        }, 'backup_deleted');
       }
 
       function load() {
@@ -640,7 +765,7 @@ window.__ModuleLoader__.load({
         event?.preventDefault?.();
         if (!draft || busy || !dirty) return;
         const retention = Number(draft.retention);
-        if (draft.transport === 'webdav' && (!/^[0-9]+$/.test(draft.retention) || !Number.isSafeInteger(retention) || retention > 50)) {
+        if (!/^[0-9]+$/.test(String(draft.retention)) || !Number.isSafeInteger(retention) || retention < 0 || retention > 50) {
           setError('invalid_retention');
           return;
         }
@@ -659,6 +784,7 @@ window.__ModuleLoader__.load({
           const value = draft.transport === 'git'
             ? await request('save', {
               transport: 'git',
+              retention,
               autoApply: draft.git.autoApply,
               git: {
                 repo: draft.git.repo.trim(),
@@ -854,6 +980,7 @@ window.__ModuleLoader__.load({
               onClick: () => (plan ? setPlanOpen(!planOpen) : preview()),
               'aria-expanded': !!plan && planOpen,
             }, plan && planOpen ? t('hide_details') : t('show_details')),
+            configured && button('backup_manage', () => openBackupModal('plugins'), blocked, {className: 'kds-ghost'}),
             button('refresh', load, !!busy || dirty, {className: 'kds-ghost'})),
           plan && planOpen && planView(),
           outcomes.length > 0 && h('section', {'aria-label': t('outcomes')},
@@ -863,62 +990,306 @@ window.__ModuleLoader__.load({
               result.detail && h('small', null, ` · ${result.detail}`))))));
       }
 
-      function reservedCards() {
-        return h('div', {className: 'kds-reserved-list', style: {display: 'grid', gap: 10}},
-          ...SCOPES.filter(scope => !scope.enabled).map(scope => h('section', {className: 'kds-module', key: scope.id},
-            h('div', {className: 'kds-module-head'},
-              h('div', {className: 'kds-module-title'},
-                h('span', {className: 'kds-dot', 'aria-hidden': true}),
-                h('strong', null, t(`scope_${scope.id}`)),
-                badge('idle', 'badge_reserved')),
-              h('span', {className: 'kds-note'}, t(`scope_${scope.id}_detail`))))));
+      function formatModSide(side) {
+        if (!side) return t('nothing');
+        if (side.files) return `${Object.keys(side.files).length} files · ${String(side.sha256 ?? '').slice(0, 8)}`;
+        return `${side.source ?? 'config'} · ${String(side.sha256 ?? '').slice(0, 8)}`;
       }
 
-      function restore(snapshotId) {
+      function changeModuleDirection(category, nextDir) {
         if (blocked) return;
-        if (!window.confirm(t('confirm_restore').replace('{id}', snapshotId))) return;
+        void run('direction', async signal => {
+          const value = await request('direction', {category, direction: nextDir}, signal);
+          applySettings(value);
+          setModPlans(prev => ({...prev, [category]: null}));
+          setModOpen(prev => ({...prev, [category]: false}));
+          setModSelected(prev => ({...prev, [category]: new Set()}));
+        }, 'direction_saved');
+      }
+
+      function previewModule(category) {
+        if (blocked) return;
+        void run('preview', async signal => {
+          const value = await request('preview', {category}, signal);
+          if (value?.overview) setModOverviews(prev => ({...prev, [category]: value.overview}));
+          setModPlans(prev => ({...prev, [category]: value}));
+          setModOpen(prev => ({...prev, [category]: true}));
+          setModSelected(prev => ({...prev, [category]: new Set((value?.items ?? []).filter(i => i.kind === 'install').map(i => i.id))}));
+        });
+      }
+
+      function syncModule(category) {
+        if (blocked) return;
+        void run('sync', async signal => {
+          const value = await request('sync', {category}, signal);
+          if (value?.overview) setModOverviews(prev => ({...prev, [category]: value.overview}));
+          setModPlans(prev => ({...prev, [category]: value}));
+          setModOutcomes(prev => ({...prev, [category]: Array.isArray(value?.outcomes) ? value.outcomes : []}));
+          setModSelected(prev => ({...prev, [category]: new Set((value?.items ?? []).filter(i => i.kind === 'install').map(i => i.id))}));
+        }, 'sync_done');
+      }
+
+      function applyModulePlan(category) {
+        const curPlan = modPlans[category];
+        const curSel = modSelected[category] ?? new Set();
+        if (blocked || !curPlan?.id || curSel.size === 0) return;
+        void run('apply', async signal => {
+          const value = await request('apply', {category, id: curPlan.id, selected: [...curSel]}, signal);
+          if (value?.overview) setModOverviews(prev => ({...prev, [category]: value.overview}));
+          setModOutcomes(prev => ({...prev, [category]: Array.isArray(value?.outcomes) ? value.outcomes : []}));
+          setModPlans(prev => ({...prev, [category]: null}));
+          setModOpen(prev => ({...prev, [category]: false}));
+          setModSelected(prev => ({...prev, [category]: new Set()}));
+        }, 'appliedStatus');
+      }
+
+      function resolveModule(category, item, choice) {
+        const curPlan = modPlans[category];
+        if (blocked || !curPlan?.id) return;
+        const question = t(choice === 'local' ? 'confirm_keep_local' : 'confirm_use_remote')
+          .replace('{name}', item.name).replace('{target}', targetLabel(saved));
+        if (!window.confirm(question)) return;
+        void run('resolve', async signal => {
+          const value = await request('resolve', {category, id: curPlan.id, name: item.id, choice}, signal);
+          if (value?.overview) setModOverviews(prev => ({...prev, [category]: value.overview}));
+          setModPlans(prev => ({...prev, [category]: value}));
+          setModOutcomes(prev => ({...prev, [category]: Array.isArray(value?.outcomes) ? value.outcomes : []}));
+        }, 'resolved');
+      }
+
+      function modulePlanView(category, curPlan) {
+        const items = curPlan.items ?? [];
+        if (items.length === 0) return h('p', {className: 'kds-note'}, t('plan_empty'));
+        const curSel = modSelected[category] ?? new Set();
+        const conflicts = items.filter(item => item.kind === 'conflict');
+        const pickable = items.filter(item => item.selectable === true && item.kind !== 'conflict');
+        const pickRows = pickable.map(item => h('tr', {key: item.id},
+          h('td', null, h('input', {
+            type: 'checkbox', checked: curSel.has(item.id), disabled: !!busy,
+            onChange: event => setModSelected(prev => {
+              const next = new Set(prev[category] ?? []);
+              if (event.target.checked) next.add(item.id); else next.delete(item.id);
+              return {...prev, [category]: next};
+            }),
+          })),
+          h('td', null, item.name),
+          h('td', null, t(item.kind)),
+          h('td', null, formatModSide(item.local)),
+          h('td', null, formatModSide(item.remote))));
+        const conflictRows = conflicts.map(item => h('tr', {key: item.id},
+          h('td', null, item.name, item.reason && h('small', null, t(item.reason))),
+          h('td', null, formatModSide(item.local)),
+          h('td', null, formatModSide(item.remote)),
+          h('td', null, formatModSide(item.baseline)),
+          h('td', null, h('div', {className: 'kds-row'},
+            button('keep_local', () => resolveModule(category, item, 'local'), blocked || item.canPublishLocal !== true),
+            button('use_remote', () => resolveModule(category, item, 'remote'), blocked || item.canApplyRemote !== true)))));
+        return h('section', {'aria-label': t('plan')},
+          h('h4', null, t('plan')),
+          pickable.length > 0 && h(Table, {label: `${category}-plan`, columns: ['pick', 'item_col', 'kind', 'local', 'remote'], t, rows: pickRows}),
+          pickable.length > 0 && h('div', {className: 'kds-row'},
+            button('apply', () => applyModulePlan(category), blocked || !curPlan.id || curSel.size === 0, {className: 'kds-primary'}),
+            h('span', {className: 'kds-note'}, `${t('selected')} · ${curSel.size}`)),
+          conflicts.length > 0 && h('section', {'aria-label': t('conflicts')},
+            h('h4', null, t('conflicts')),
+            h(Table, {label: `${category}-conflicts`, columns: ['item_col', 'local', 'remote', 'baseline', 'action'], t, rows: conflictRows})));
+      }
+
+      function reservedCards() {
+        return h('div', {className: 'kds-reserved-list', style: {display: 'grid', gap: 12}},
+          ...SCOPES.filter(scope => scope.id !== 'plugins').map(scope => {
+            const cat = scope.id;
+            const modSaved = saved?.modules?.[cat] ?? {};
+            const modOv = modOverviews[cat] ?? modSaved.overview ?? null;
+            const modDir = modSaved.direction ?? 'both';
+            const kind = stateOf(configured ? saved : null, modOv);
+            const attempt = modOv?.lastAttempt;
+            const curPlan = modPlans[cat];
+            const isOpen = !!modOpen[cat];
+            const curOutcomes = modOutcomes[cat] ?? [];
+            const meta = Number.isFinite(modOv?.localCount) && Number.isFinite(modOv?.remoteCount)
+              ? t('meta_items').replace('{local}', String(modOv.localCount)).replace('{remote}', String(modOv.remoteCount))
+              : t(`scope_${cat}_detail`);
+            return h('section', {className: `kds-module${kind === 'failed' ? ' kds-failed' : ''}`, key: cat, 'aria-labelledby': `${id}-${cat}`},
+              h('div', {className: 'kds-module-head'},
+                h('div', {className: 'kds-module-title'},
+                  h('span', {className: `kds-dot kds-dot-${kind === 'ok' ? 'ok' : kind === 'failed' ? 'failed' : kind === 'pending' ? 'pending' : 'idle'}`, 'aria-hidden': true}),
+                  h('h3', {id: `${id}-${cat}`}, t(`scope_${cat}`)),
+                  configured ? statusBadge(kind) : badge('idle', 'badge_unconfigured')),
+                h('span', {className: 'kds-note'}, meta)),
+              h('div', {className: 'kds-module-meta'},
+                h('span', {className: 'kds-note'}, attempt?.at
+                  ? t('last_attempt').replace('{time}', new Date(attempt.at).toLocaleString())
+                  : t('never_synced')),
+                h('div', {className: 'kds-seg', role: 'group', 'aria-label': t(`scope_${cat}`)},
+                  ...DIRECTIONS.map(item => h('button', {
+                    key: item.id, type: 'button',
+                    'aria-pressed': modDir === item.id,
+                    disabled: !!busy || !configured || dirty,
+                    onClick: () => changeModuleDirection(cat, item.id),
+                  }, t(item.label))))),
+              h('div', {className: 'kds-row'},
+                configured && button(kind === 'failed' ? 'retry' : 'sync', () => syncModule(cat), blocked, {className: 'kds-primary'}),
+                configured && h('button', {
+                  type: 'button', className: 'kds-ghost', disabled: blocked,
+                  onClick: () => (curPlan ? setModOpen(prev => ({...prev, [cat]: !prev[cat]})) : previewModule(cat)),
+                  'aria-expanded': !!curPlan && isOpen,
+                }, curPlan && isOpen ? t('hide_details') : t('show_details')),
+                configured && button('backup_manage', () => openBackupModal(cat), blocked, {className: 'kds-ghost'})),
+              curPlan && isOpen && modulePlanView(cat, curPlan),
+              curOutcomes.length > 0 && h('section', {'aria-label': t('outcomes')},
+                h('h4', null, t('outcomes')),
+                h('ul', null, ...curOutcomes.map((result, idx) => h('li', {key: `${result.name}-${idx}`},
+                  `${result.name} · ${t(result.status === 'applied' ? 'appliedStatus' : result.status)}`,
+                  result.detail && h('small', null, ` · ${result.detail}`))))));
+          }));
+      }
+
+      function restore(snapshotId, displayName) {
+        if (blocked) return;
+        const msg = backupCategory === 'plugins'
+          ? t('confirm_restore').replace('{id}', displayName || snapshotId)
+          : t('confirm_restore_module').replace('{id}', displayName || snapshotId).replace('{category}', t(`scope_${backupCategory}`));
+        if (!window.confirm(msg)) return;
         void run('restore', async signal => {
-          const value = await request('restore', {id: snapshotId}, signal);
-          if (value?.overview) setOverview(value.overview);
-          const kept = Array.isArray(value?.extra)
-            ? value.extra.map(name => ({name, status: 'skipped', detail: t('restore_kept')}))
-            : [];
-          setOutcomes([...(Array.isArray(value?.outcomes) ? value.outcomes : []), ...kept]);
-          setPlan(null);
-          setPlanOpen(false);
-          setSelected(new Set());
-          await refreshBackups(signal);
+          const value = await request('restore', {category: backupCategory, id: snapshotId}, signal);
+          if (backupCategory === 'plugins') {
+            if (value?.overview) setOverview(value.overview);
+            const kept = Array.isArray(value?.extra)
+              ? value.extra.map(name => ({name, status: 'skipped', detail: t('restore_kept')}))
+              : [];
+            setOutcomes([...(Array.isArray(value?.outcomes) ? value.outcomes : []), ...kept]);
+            setPlan(null);
+            setPlanOpen(false);
+            setSelected(new Set());
+          } else {
+            if (value?.overview) setModOverviews(prev => ({...prev, [backupCategory]: value.overview}));
+            setModOutcomes(prev => ({...prev, [backupCategory]: Array.isArray(value?.outcomes) ? value.outcomes : []}));
+            setModPlans(prev => ({...prev, [backupCategory]: null}));
+            setModOpen(prev => ({...prev, [backupCategory]: false}));
+          }
+          await refreshBackups(signal, backupCategory);
         }, 'restored');
       }
 
-      function backupCard() {
+      function normalizeBackupItems() {
+        if (Array.isArray(backups?.items)) return backups.items;
         const remote = new Map((backups?.snapshots ?? []).map(item => [item.id, item]));
-        const ids = [...new Set([...remote.keys(), ...(backups?.local ?? [])])].sort().reverse();
-        const rows = ids.map(snapshotId => {
+        const localSet = new Set(backups?.local ?? []);
+        const ids = [...new Set([...remote.keys(), ...localSet])].sort().reverse();
+        return ids.map(snapshotId => {
           const found = remote.get(snapshotId);
-          return h('tr', {key: snapshotId},
-            h('td', null, found ? new Date(found.createdAt).toLocaleString() : snapshotId, found && h('small', null, snapshotId)),
-            h('td', null, found ? badge('ok', 'backup_remote') : badge('idle', 'backup_local_only')),
-            h('td', null, found ? t('backup_files').replace('{count}', String(found.files.length)) : t('nothing')),
-            h('td', null, h('button', {
-              type: 'button', disabled: blocked,
-              onClick: () => restore(snapshotId),
-            }, t('restore'))));
+          const bytes = found
+            ? (Number.isFinite(found.totalBytes) ? found.totalBytes : (found.files ?? []).reduce((s, f) => s + (f.bytes ?? 0), 0))
+            : 0;
+          return {
+            id: snapshotId,
+            name: found?.name ?? `dsh-${backupCategory}.${snapshotId}`,
+            createdAt: found?.createdAt ?? null,
+            totalBytes: bytes,
+            fileCount: found?.files?.length ?? 0,
+            location: found ? (localSet.has(snapshotId) ? 'both' : 'remote') : 'local',
+          };
         });
-        return h('section', {className: 'kds-module', 'aria-labelledby': `${id}-backups`},
-          h('div', {className: 'kds-module-head'},
-            h('div', {className: 'kds-module-title'},
-              h('span', {className: 'kds-dot', 'aria-hidden': true}),
-              h('h3', {id: `${id}-backups`}, t('backups'))),
-            h('button', {type: 'button', className: 'kds-ghost', disabled: !!busy || dirty, onClick: loadBackups}, t('refresh'))),
-          h('p', {className: 'kds-note'}, t('backup_note').replace('{retention}', String(saved?.retention ?? 10))),
-          backups?.error && h('p', {className: 'kds-error'}, t('backup_remote_failed').replace('{error}',
-            backups.error.startsWith('requestFailed|')
-              ? `${t('requestFailed')} (${backups.error.split('|')[1]})`
-              : backups.error)),
-          rows.length > 0
-            ? h(Table, {label: 'backups', columns: ['backup_time', 'backup_where', 'backup_files', 'action'], t, rows})
-            : h('p', {className: 'kds-note'}, backups?.error ? t('backup_unavailable') : t('backup_empty')));
+      }
+
+      function backupModal() {
+        if (!backupModalOpen) return null;
+        const items = normalizeBackupItems();
+        const allSelected = items.length > 0 && items.every(item => selectedBackups.has(item.id));
+        const toggleAll = checked => {
+          setSelectedBackups(checked ? new Set(items.map(item => item.id)) : new Set());
+        };
+        const toggleOne = (snapshotId, checked) => {
+          setSelectedBackups(previous => {
+            const next = new Set(previous);
+            if (checked) next.add(snapshotId); else next.delete(snapshotId);
+            return next;
+          });
+        };
+        const rows = items.map(item => h('tr', {key: item.id},
+          h('td', null, h('input', {
+            type: 'checkbox',
+            checked: selectedBackups.has(item.id),
+            disabled: !!busy,
+            'aria-label': t('backup_select_one').replace('{name}', item.name),
+            onChange: event => toggleOne(item.id, event.target.checked),
+          })),
+          h('td', null, h('div', {className: 'kds-cell-name'},
+            h('span', {className: 'kds-filename', title: item.name}, item.name),
+            item.location === 'local' && badge('idle', 'backup_local_only'))),
+          h('td', null, formatDateTime(item.createdAt, item.id)),
+          h('td', null, formatBytes(item.totalBytes)),
+          h('td', null, h('div', {className: 'kds-row'},
+            h('button', {
+              type: 'button', className: 'kds-link-btn', disabled: blocked,
+              onClick: () => restore(item.id, item.name),
+            }, t('restore')),
+            h('button', {
+              type: 'button', className: 'kds-link-btn kds-link-danger', disabled: blocked,
+              onClick: () => deleteBackups([item.id], item.name),
+            }, t('backup_delete'))))));
+        return h('div', {
+          className: 'kds-modal-backdrop',
+          role: 'dialog',
+          'aria-modal': 'true',
+          'aria-labelledby': `${id}-backup-modal-title`,
+          onClick: event => { if (event.target === event.currentTarget && !busy) setBackupModalOpen(false); },
+        },
+          h('div', {className: 'kds-modal'},
+            h('div', {className: 'kds-modal-head'},
+              h('h3', {id: `${id}-backup-modal-title`}, t('backup_manager_title')),
+              h('button', {
+                type: 'button', className: 'kds-modal-close', disabled: !!busy,
+                'aria-label': t('close'),
+                onClick: () => setBackupModalOpen(false),
+              }, '×')),
+            h('div', {className: 'kds-tabs', role: 'tablist'},
+              ...SCOPES.map(scope => h('button', {
+                key: scope.id, type: 'button', className: 'kds-tab',
+                'aria-pressed': backupCategory === scope.id,
+                disabled: !scope.enabled || !!busy,
+                title: scope.enabled ? t(`scope_${scope.id}`) : t('badge_reserved'),
+                onClick: () => {
+                  setBackupCategory(scope.id);
+                  setSelectedBackups(new Set());
+                  loadBackups(scope.id);
+                },
+              }, t(`scope_${scope.id}`)))),
+            h('div', {className: 'kds-modal-body'},
+              h('p', {className: 'kds-note'}, t('backup_note').replace('{retention}', String(saved?.retention ?? 10))),
+              backups?.error && h('p', {className: 'kds-error'}, t('backup_remote_failed').replace('{error}',
+                backups.error.startsWith('requestFailed|')
+                  ? `${t('requestFailed')} (${backups.error.split('|')[1]})`
+                  : backups.error)),
+              rows.length > 0
+                ? h('div', {className: 'kds-table'},
+                  h('table', {'aria-label': t('backup_manager_title')},
+                    h('thead', null, h('tr', null,
+                      h('th', null, h('input', {
+                        type: 'checkbox', checked: allSelected, disabled: !!busy,
+                        'aria-label': t('backup_select_all'),
+                        onChange: event => toggleAll(event.target.checked),
+                      })),
+                      h('th', null, t('backup_filename')),
+                      h('th', null, t('backup_modified')),
+                      h('th', null, t('backup_size')),
+                      h('th', null, t('backup_actions')))),
+                    h('tbody', null, ...rows)))
+                : h('p', {className: 'kds-note'}, backups?.error ? t('backup_unavailable') : t('backup_empty'))),
+            h('div', {className: 'kds-modal-foot'},
+              h('button', {
+                type: 'button', disabled: blocked, onClick: createBackupNow,
+              }, t('backup_now')),
+              h('div', {className: 'kds-row'},
+                h('button', {
+                  type: 'button', disabled: !!busy || dirty, onClick: () => loadBackups(backupCategory),
+                }, t('backup_refresh')),
+                h('button', {
+                  type: 'button', className: 'kds-danger',
+                  disabled: blocked || selectedBackups.size === 0,
+                  onClick: () => deleteBackups([...selectedBackups]),
+                }, t('backup_delete_selected').replace('{count}', String(selectedBackups.size)))))));
       }
 
       function syncPage() {
@@ -931,7 +1302,6 @@ window.__ModuleLoader__.load({
             h('p', {className: 'kds-note'}, t('connection_missing')),
             h('button', {type: 'button', className: 'kds-primary', onClick: () => go('connection')}, t('tab_connection'))),
           saved && pluginCard(),
-          saved && configured && backupCard(),
           reservedCards());
       }
 
@@ -1001,7 +1371,11 @@ window.__ModuleLoader__.load({
               h('input', {type: 'password', value: draft.git.token, disabled: !!busy, autoComplete: 'new-password',
                 onChange: event => gitField('token', event.target.value)})),
             gitInput('git_author_name', 'authorName'),
-            gitInput('git_author_email', 'authorEmail')),
+            gitInput('git_author_email', 'authorEmail'),
+            h('div', {className: 'kds-field kds-field-narrow'}, t('retention'),
+              h('input', {type: 'number', min: 0, max: 50, step: 1, inputMode: 'numeric',
+                value: draft.retention, disabled: !!busy,
+                onChange: event => field('retention', event.target.value)}))),
           git && autoApplyRow(draft.git.autoApply, next => gitField('autoApply', next)),
           feedback(),
           h('div', {className: 'kds-actions'},
@@ -1026,7 +1400,8 @@ window.__ModuleLoader__.load({
           h('button', {type: 'button', className: 'kds-tab', 'aria-pressed': page === 'sync', onClick: () => go('sync')}, t('tab_sync')),
           h('button', {type: 'button', className: 'kds-tab', 'aria-pressed': page === 'connection', onClick: () => go('connection')}, t('tab_connection'))),
         h('p', {className: 'kds-note kds-endpoint'}, summary),
-        page === 'sync' ? syncPage() : connectionPage());
+        page === 'sync' ? syncPage() : connectionPage(),
+        backupModal());
     }
 
     return {

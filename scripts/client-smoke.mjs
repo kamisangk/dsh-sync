@@ -105,12 +105,14 @@ render({0: 'sync', 1: settings, 2: draft, 9: ''});
 if (!calls.some(node => node.type === 'section')) throw new Error('the configured sync page rendered no card');
 flush('configured sync page');
 
-render({0: 'sync', 1: settings, 2: draft, 8: {snapshots: [
-  {id: '20260101-000000', createdAt: '2026-01-01T00:00:00.000Z', files: [{path: 'plugins.json', bytes: 2, sha256: '00'}]},
-], local: ['20260101-000001']}, 9: '', 12: null});
-if (!calls.some(node => node.type === 'button' && node.props.children[0] === 'restore')) throw new Error('the backup card rendered no restore action');
+render({0: 'sync', 1: settings, 2: draft, 8: {category: 'plugins', items: [
+  {id: '20260101-000000', name: 'dsh-plugins.20260101-000000', createdAt: '2026-01-01T00:00:00.000Z', totalBytes: 1024, fileCount: 1, location: 'both'},
+  {id: '20260101-000001', name: 'dsh-plugins.20260101-000001', createdAt: '2026-01-01T00:00:01.000Z', totalBytes: 512, fileCount: 1, location: 'local'},
+], snapshots: [], local: ['20260101-000001']}, 9: '', 12: null, 13: true, 14: 'plugins', 15: new Set(['20260101-000000'])});
+if (!calls.some(node => node.type === 'button' && node.props.children[0] === 'restore')) throw new Error('the backup modal rendered no restore action');
+if (!calls.some(node => node.type === 'button' && node.props.children[0] === 'backup_delete')) throw new Error('the backup modal rendered no delete action');
 if (!calls.some(node => node.type === 'span' && node.props.children[0] === 'backup_local_only')) throw new Error('a local-only backup was not marked as such');
-flush('sync page with backups');
+flush('backup data management modal');
 
 render({0: 'sync', 1: {...settings, webdavAutoApply: true}, 2: draft, 9: ''});
 const action = calls.find(node => node.type === 'button' && node.props.className === 'kds-primary');

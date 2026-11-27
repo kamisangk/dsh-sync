@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
-  PLUGIN_FILES, collectPluginFiles, describeSnapshot, digest, encodeIndex, listLocal, mergeIndex,
-  parseIndex, parsePluginList, pruneLocal, readLocal, restoreItems, snapshotId, verifyFiles, writeLocal,
+  CATEGORIES, PLUGIN_FILES, assertCategory, collectPluginFiles, deleteLocal, describeSnapshot, digest, encodeIndex, indexPath, listLocal, localSnapshotStats, mergeIndex,
+  parseIndex, parsePluginList, pruneLocal, readLocal, removeFromIndex, restoreItems, snapshotId, snapshotName, snapshotPrefix, verifyFiles, writeLocal,
 } from '../lib/backup.js';
 
 const entry = (name = 'tool', version = '1.0.0', enabled = true) => ({name, version, spec: `${name}@${version}`, enabled});
@@ -22,7 +22,9 @@ test('snapshot ids are sortable local timestamps', () => {
 test('describeSnapshot records only the files that exist and rejects bad ids', () => {
   const files = filesOf();
   const snapshot = describeSnapshot('20260101-000000', files);
-  assert.deepEqual(Object.keys(snapshot), ['id', 'createdAt', 'files']);
+  assert.deepEqual(Object.keys(snapshot), ['id', 'name', 'createdAt', 'totalBytes', 'files']);
+  assert.equal(snapshot.name, 'dsh-plugins.20260101-000000');
+  assert.equal(snapshot.totalBytes, files['plugins.json'].length);
   assert.deepEqual(snapshot.files, [{path: 'plugins.json', bytes: files['plugins.json'].length, sha256: digest(files['plugins.json'])}]);
   assert.throws(() => describeSnapshot('../../etc', files), /Invalid snapshot id/);
   assert.throws(() => describeSnapshot('20260101-000000', null), /needs its files/);
@@ -32,7 +34,7 @@ test('describeSnapshot records only the files that exist and rejects bad ids', (
 test('parseIndex rejects everything it does not fully understand', () => {
   const files = describeSnapshot('20260101-000000', filesOf()).files;
   const good = {version: 1, snapshots: [{id: '20260101-000000', createdAt: '2026-01-01T00:00:00.000Z', files}]};
-  assert.deepEqual(parseIndex(good), good);
+  assert.deepEqual(parseIndex(good), {version: 1, snapshots: [{id: '20260101-000000', name: 'dsh-plugins.20260101-000000', createdAt: '2026-01-01T00:00:00.000Z', totalBytes: files[0].bytes, files}]});
   const clone = value => JSON.parse(JSON.stringify(value));
   for (const broken of [
     null, [], {}, {version: 2, snapshots: []}, {version: 1}, {version: 1, snapshots: {}},
@@ -142,4 +144,32 @@ test('parsePluginList rejects documents without entries', () => {
     assert.throws(() => parsePluginList(Buffer.from(body)), /plugins.json/, body);
   }
   assert.deepEqual(PLUGIN_FILES, ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'plugins.json']);
+});
+
+test('categories, removeFromIndex, deleteLocal and localSnapshotStats work safely', async () => {
+  assert.ok(CATEGORIES.includes('plugins') && CATEGORIES.includes('settings') && CATEGORIES.includes('models'));
+  assert.equal(indexPath('settings'), 'backup/settings/index.json');
+  assert.equal(snapshotPrefix('models'), 'backup/models/');
+  assert.equal(snapshotName('plugins', '20260101-000001'), 'dsh-plugins.20260101-000001');
+  assert.throws(() => assertCategory('evil'), /Invalid backup category/);
+
+  const one = describeSnapshot('20260101-000001', filesOf());
+  const two = describeSnapshot('20260101-000002', filesOf());
+  const idx = {version: 1, snapshots: [two, one]};
+  const after = removeFromIndex(idx, ['20260101-000001', '20260101-999999']);
+  assert.deepEqual(after.removed, ['20260101-000001']);
+  assert.deepEqual(after.index.snapshots.map(x => x.id), ['20260101-000002']);
+  assert.throws(() => removeFromIndex(idx, ['../escape']), /Invalid snapshot id/);
+
+  const root = await tempProfile();
+  await writeLocal(root, '20260101-000001', filesOf());
+  await writeLocal(root, '20260101-000002', filesOf());
+  const stats = await localSnapshotStats(root, '20260101-000002', 'plugins');
+  assert.equal(stats.name, 'dsh-plugins.20260101-000002');
+  assert.equal(stats.fileCount, 1);
+  assert.ok(stats.totalBytes > 0);
+  const removedLocal = await deleteLocal(root, ['20260101-000001', '20260101-000009']);
+  assert.deepEqual(removedLocal, ['20260101-000001']);
+  assert.deepEqual(await listLocal(root), ['20260101-000002']);
+  await assert.rejects(deleteLocal(root, ['../escape']), /Invalid snapshot id/);
 });

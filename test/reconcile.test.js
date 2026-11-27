@@ -190,34 +190,32 @@ test('a conflict keeps the baseline that produced it', () => {
 
 // ---------------------------------------------------------------- update()
 
-test('update archives the previous list whenever an existing row changes', async () => {
+test('update keeps manifest history empty whenever an existing row changes', async () => {
   const server = mockDav();
   const dav = createDav(config, server.fetcher);
   server.seed({version: 1, entries: [entry('alpha')], history: []});
-  const result = await dav.update(entries => entries.map(item => ({...item, enabled: false})), 5);
-  assert.deepEqual([result.added, result.updated, result.historyCount], [0, 1, 1]);
-  assert.deepEqual(result.entries, [entry('alpha', '1.0.0', false)]);
-  assert.deepEqual(server.manifest().history, [[entry('alpha')]]);
-  assert.deepEqual(server.stored(), [entry('alpha', '1.0.0', false)]);
+  const result = await dav.update(entries => entries.map(item => ({...item, version: '2.0.0', spec: 'alpha@2.0.0'})), 5);
+  assert.deepEqual([result.added, result.updated, result.historyCount], [0, 1, 0]);
+  assert.deepEqual(server.manifest().entries, [entry('alpha', '2.0.0')]);
+  assert.deepEqual(server.manifest().history, []);
 });
 
 test('update writes nothing when the transform changes nothing', async () => {
   const server = mockDav();
   const dav = createDav(config, server.fetcher);
-  server.seed({version: 1, entries: [entry('alpha')], history: [[entry('beta')]]});
+  server.seed({version: 1, entries: [entry('alpha')], history: []});
   const result = await dav.update(entries => entries, 5);
-  assert.deepEqual([result.added, result.updated, result.historyCount], [0, 0, 1]);
-  assert.equal(server.writes().length, 0);
+  assert.deepEqual([result.added, result.updated, result.historyCount], [0, 0, 0]);
+  assert.deepEqual(server.writes(), []);
 });
 
-test('a reduced retention trims history without inventing a backup', async () => {
+test('legacy manifest history is cleared without inventing a backup', async () => {
   const server = mockDav();
   const dav = createDav(config, server.fetcher);
   server.seed({version: 1, entries: [entry('alpha')], history: [[entry('one')], [entry('two')], [entry('three')]]});
   const result = await dav.update(entries => entries, 1);
-  assert.deepEqual([result.added, result.updated, result.historyCount], [0, 0, 1]);
-  assert.deepEqual(server.manifest().history, [[entry('one')]]);
-  assert.equal(server.writes().length, 1);
+  assert.deepEqual([result.added, result.updated, result.historyCount], [0, 0, 0]);
+  assert.deepEqual(server.manifest().history, []);
 });
 
 test('update refuses to drop a row the remote list already has', async () => {

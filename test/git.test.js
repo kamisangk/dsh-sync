@@ -318,3 +318,21 @@ test('backup retention removes old snapshot paths from the branch', async () => 
     assert.deepEqual(await client.read(), {entries: [], historyCount: null})
   } finally { await remote.cleanup() }
 })
+
+test('git backupDelete removes selected snapshots and preserves other categories and root files', async () => {
+  const remote = await bareRemote()
+  try {
+    const git = local(remote.path)
+    const files = { 'plugins.json': Buffer.from('{"version":1,"entries":[]}\n') }
+    await git.backupWrite(describeSnapshot('20260101-000001', files, '2026-01-01T00:00:01.000Z', 'plugins'), files, 5, 'plugins')
+    await git.backupWrite(describeSnapshot('20260101-000002', files, '2026-01-01T00:00:02.000Z', 'plugins'), files, 5, 'plugins')
+    const mFiles = { 'models.json': Buffer.from('{"version":1,"category":"models","items":[]}\n') }
+    await git.backupWrite(describeSnapshot('20260101-000003', mFiles, '2026-01-01T00:00:03.000Z', 'models'), mFiles, 5, 'models')
+    const del = await git.backupDelete(['20260101-000001'], 'plugins')
+    assert.deepEqual(del.removed, ['20260101-000001'])
+    assert.deepEqual((await git.backupRead('plugins')).snapshots.map(x => x.id), ['20260101-000002'])
+    assert.deepEqual((await git.backupRead('models')).snapshots.map(x => x.id), ['20260101-000003'])
+  } finally {
+    await remote.cleanup()
+  }
+})

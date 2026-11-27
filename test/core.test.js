@@ -99,7 +99,7 @@ test('plugin specs are exact npm or pinned GitHub only', () => {
     npm('x', '1.0.0', 'true'), { ...npm('x'), enabled: undefined }]) assert.throws(() => parseEntry(entry), TypeError)
 })
 
-test('publication unions only local additions, preserves conflicts, and archives the previous current', async () => {
+test('publication unions only local additions, preserves conflicts, and keeps manifest history empty', async () => {
   const server = mockDav()
   const dav = createDav(config, server.fetcher)
   const a = npm('a')
@@ -107,25 +107,22 @@ test('publication unions only local additions, preserves conflicts, and archives
   assert.deepEqual(await dav.read(), { entries: [], historyCount: 0 })
   assert.deepEqual(await dav.publish([b]), { entries: [b], added: 1, historyCount: 0 })
   assert.equal(server.writes()[0].headers.get('if-none-match'), '*')
-  assert.deepEqual(await dav.publish([npm('b', '2.0.0', false), a]), { entries: [a, b], added: 1, historyCount: 1 })
+  assert.deepEqual(await dav.publish([npm('b', '2.0.0', false), a]), { entries: [a, b], added: 1, historyCount: 0 })
   assert.match(server.writes()[1].headers.get('if-match'), /^"rev-/)
-  assert.deepEqual(server.manifest().history, [[b]])
-  assert.deepEqual(await dav.publish([npm('a', '2.0.0')]), { entries: [a, b], added: 0, historyCount: 1 })
+  assert.deepEqual(server.manifest().history, [])
+  assert.deepEqual(await dav.publish([npm('a', '2.0.0')]), { entries: [a, b], added: 0, historyCount: 0 })
   assert.equal(server.writes().length, 2)
   assert.deepEqual([...server.files.keys()], [manifestPath])
-  assert.deepEqual(await dav.read(), { entries: [a, b], historyCount: 1 })
+  assert.deepEqual(await dav.read(), { entries: [a, b], historyCount: 0 })
 })
 
-test('backup retention excludes current and can trim on an unchanged sync', async () => {
+test('manifest clears legacy history and validates retention range', async () => {
   const server = mockDav()
   const dav = createDav(config, server.fetcher)
-  for (const name of ['a', 'b', 'c', 'd']) await dav.publish([npm(name)], 2)
-  const document = server.manifest()
-  assert.deepEqual(document.history.map(entries => entries.map(entry => entry.name)), [['a', 'b', 'c'], ['a', 'b']])
-  assert.deepEqual(await dav.publish([], 1), { entries: document.entries, added: 0, historyCount: 1 })
-  assert.deepEqual(server.manifest().history, [document.history[0]])
-  assert.deepEqual(await dav.publish([], 0), { entries: document.entries, added: 0, historyCount: 0 })
-  assert.deepEqual(await dav.publish([npm('e')], 0), { entries: [...document.entries, npm('e')], added: 1, historyCount: 0 })
+  server.seed({ version: 1, entries: [npm('a')], history: [[npm('legacy')]] })
+  assert.equal((await dav.read()).historyCount, 1)
+  assert.deepEqual(await dav.publish([], 2), { entries: [npm('a')], added: 0, historyCount: 0 })
+  assert.deepEqual(server.manifest().history, [])
   for (const value of [51, -1, 1.1, '10']) await assert.rejects(dav.publish([], value), /retention/)
 })
 
@@ -138,7 +135,7 @@ test('creation race must re-read and re-union after 412', { timeout: 3_000 }, as
   const results = await Promise.all([first.publish([a]), second.publish([b])])
   assert.equal(results[0].added, 1)
   assert.equal(results[1].added, 1)
-  assert.deepEqual(await first.read(), { entries: [a, b], historyCount: 1 })
+  assert.deepEqual(await first.read(), { entries: [a, b], historyCount: 0 })
   assert.deepEqual(server.writes().map(write => write.status), [201, 412, 204])
   assert.equal(server.writes()[1].headers.get('if-none-match'), '*')
   assert.ok(server.writes()[2].headers.get('if-match'))
@@ -153,8 +150,7 @@ test('update race keeps both additions and one backup per successful update', { 
   await Promise.all([createDav(config, server.fetcher).publish([b]), createDav(config, server.fetcher).publish([c])])
   const doc = server.manifest()
   assert.deepEqual(doc.entries, [a, b, c])
-  assert.equal(doc.history[0].length, 2)
-  assert.deepEqual(doc.history[1], [a])
+  assert.deepEqual(doc.history, [])
   assert.deepEqual(server.writes().map(write => write.status), [204, 412, 204])
 })
 
@@ -169,16 +165,14 @@ for (const options of [{ ignoreMatch: true }, { ignoreNone: true }, { weakEtag: 
   })
 }
 
-test('oversized history blocks the entire update instead of silently dropping backups', async () => {
+test('legacy oversized history is cleared on next publish so manifest stays compact', async () => {
   const server = mockDav()
   const dav = createDav(config, server.fetcher)
   const entries = Array.from({ length: 160 }, (_, i) => npm(`long-${i}-${'a'.repeat(190)}`, `1.0.0+${'b'.repeat(240)}`))
-  const historyCount = Math.floor((4 * 1024 * 1024 - Buffer.byteLength(JSON.stringify({ version: 1, entries, history: [] }))) / (Buffer.byteLength(JSON.stringify(entries)) + 1))
-  assert.ok(historyCount < 50)
-  server.seed({ version: 1, entries, history: Array.from({ length: historyCount }, () => entries) })
-  assert.equal((await dav.read()).historyCount, historyCount)
-  await assert.rejects(dav.publish([npm('new')], 50), /lower backup retention/)
-  assert.deepEqual(server.writes(), [])
+  server.seed({ version: 1, entries, history: [entries] })
+  const result = await dav.publish([npm('new')], 50)
+  assert.equal(result.historyCount, 0)
+  assert.deepEqual(server.manifest().history, [])
 })
 
 test('invalid remote documents, oversized streams, and redirects are rejected', async () => {
@@ -262,4 +256,20 @@ test('backup ids and retention are validated before any request', async () => {
   await assert.rejects(dav.backupWrite(entry, files, 0), /between 1 and 50/)
   await assert.rejects(dav.backupWrite(entry, files, 51), /between 1 and 50/)
   assert.equal(server.requests.length, 0)
+})
+
+test('backupDelete removes selected snapshots from index and collection, and supports categories', async () => {
+  const server = mockDav()
+  const dav = createDav(config, server.fetcher)
+  const files = { 'plugins.json': Buffer.from('{"version":1,"entries":[]}\n') }
+  await dav.backupWrite(describeSnapshot('20260101-000001', files, '2026-01-01T00:00:01.000Z', 'plugins'), files, 5, 'plugins')
+  await dav.backupWrite(describeSnapshot('20260101-000002', files, '2026-01-01T00:00:02.000Z', 'plugins'), files, 5, 'plugins')
+  const sFiles = { 'settings.json': Buffer.from('{"version":1,"category":"settings","items":[]}\n') }
+  await dav.backupWrite(describeSnapshot('20260101-000003', sFiles, '2026-01-01T00:00:03.000Z', 'settings'), sFiles, 5, 'settings')
+  const del = await dav.backupDelete(['20260101-000001'], 'plugins')
+  assert.deepEqual(del.removed, ['20260101-000001'])
+  assert.deepEqual((await dav.backupRead('plugins')).snapshots.map(x => x.id), ['20260101-000002'])
+  assert.deepEqual((await dav.backupRead('settings')).snapshots.map(x => x.id), ['20260101-000003'])
+  assert.equal(server.files.has('/a/sync/backup/plugins/20260101-000001/plugins.json'), false)
+  assert.equal(server.files.has('/a/sync/backup/settings/20260101-000003/settings.json'), true)
 })

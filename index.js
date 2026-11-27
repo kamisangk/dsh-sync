@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createDav, DavError } from './lib/core.js';
-import { collectPluginFiles, describeSnapshot, listLocal, parsePluginList, pruneLocal, readLocal, restoreItems, snapshotId, writeLocal } from './lib/backup.js';
+import { CATEGORY, SNAPSHOT_ID, assertCategory, collectPluginFiles, deleteLocal, describeSnapshot, listLocal, localSnapshotStats, parsePluginList, pruneLocal, readLocal, restoreItems, snapshotId, snapshotName, writeLocal } from './lib/backup.js';
+import { MODULE_CATEGORIES, applyModuleItems, collectModuleData, parseModuleSnapshotItems, reconcileModule } from './lib/modules.js';
 import { createGit, GitError } from './lib/git.js';
 import { planReconciliation } from './lib/reconcile.js';
 import { inventory } from './lib/planner.js';
@@ -18,7 +19,7 @@ class RequestError extends Error {}
 
 const GIT_KEY = 'kamisangk-dsh-sync/git';
 const TARGET_KEY = 'kamisangk-dsh-sync/transport';
-const GIT_DEFAULTS = {repo: '', branch: 'main', auth: 'ssh', token: '', gitUsername: 'x-access-token', authorName: 'DSH Sync', authorEmail: 'dsh-sync@localhost', autoApply: false};
+const GIT_DEFAULTS = {repo: '', branch: 'main', auth: 'ssh', token: '', gitUsername: 'x-access-token', authorName: 'DSH Sync', authorEmail: 'dsh-sync@localhost', retention: 10, autoApply: false};
 const DIRECTIONS = ['both', 'upload', 'download'];
 
 /** The address and folder fields are what the user configures; the URL is their join. */
@@ -48,9 +49,14 @@ export function composeWebdavUrl(address, dir) {
 
 function publicSettings(settings, state) {
   const {password, git: {token, autoApply: gitAutoApply, ...git}, ...rest} = settings;
+  const modules = {};
+  for (const cat of MODULE_CATEGORIES) {
+    const mod = state.modules?.[cat] ?? {};
+    modules[cat] = {direction: mod.direction ?? 'both', overview: mod.overview ?? {}};
+  }
   return {...rest, git: {...git, autoApply: gitAutoApply, tokenSet: !!token}, passwordSet: !!password,
     webdavAutoApply: rest.autoApply, autoApply: rest.transport === 'git' ? gitAutoApply : rest.autoApply,
-    direction: state.direction ?? 'both', overview: state.overview};
+    direction: state.direction ?? 'both', overview: state.overview, modules};
 }
 
 export function syncService(manager, credentials, connect = createDav, connectGit = createGit, paths = {}) {
@@ -58,31 +64,73 @@ export function syncService(manager, credentials, connect = createDav, connectGi
   let busy = false;
   // Tests hand over an isolated profile directory; the Host always leaves `paths` empty.
   const profileDir = () => paths.profileDir ?? process.env.DSH_PROFILE_DIR ?? process.env.DSH_PROFILE ?? process.cwd();
-  const backupRoot = () => paths.backupRoot ?? join(profileDir(), '.dsh-sync', 'backups');
+  const backupBase = () => paths.backupRoot ?? join(profileDir(), '.dsh-sync', 'backups');
+  const backupRoot = (category = CATEGORY) => join(backupBase(), assertCategory(category));
+  const listLocalAll = async (category = CATEGORY) => {
+    const cat = assertCategory(category);
+    const scoped = await listLocal(backupRoot(cat));
+    const legacy = cat === CATEGORY ? await listLocal(backupBase()) : [];
+    return [...new Set([...scoped, ...legacy])].sort().reverse();
+  };
+  const readLocalAny = async (category, id) => {
+    const cat = assertCategory(category);
+    const direct = await readLocal(backupRoot(cat), id, cat);
+    if (direct || cat !== CATEGORY) return direct;
+    return await readLocal(backupBase(), id, cat);
+  };
+  const localStatsAny = async (category, id) => {
+    const cat = assertCategory(category);
+    const direct = await localSnapshotStats(backupRoot(cat), id, cat);
+    if (direct || cat !== CATEGORY) return direct;
+    return await localSnapshotStats(backupBase(), id, cat);
+  };
+  const deleteLocalAny = async (category, ids) => {
+    const cat = assertCategory(category);
+    const removedScoped = await deleteLocal(backupRoot(cat), ids);
+    const removedLegacy = cat === CATEGORY ? await deleteLocal(backupBase(), ids) : [];
+    return [...new Set([...removedScoped, ...removedLegacy])];
+  };
   const local = async () => inventory(await manager.listBundles(), await manager.listPlugins());
-  /** Snapshots the plugin configuration the machine has right now, locally and ready to upload. */
-  const takeSnapshot = async entries => {
-    const files = await collectPluginFiles(profileDir(), entries);
-    // Two snapshots taken in the same second still get distinct ids, so a restore's safety copy
-    // never overwrites the snapshot it is restoring from.
-    const taken = new Set(await listLocal(backupRoot()));
+  /** Snapshots the module configuration the machine has right now, locally and ready to upload. */
+  const modulePaths = () => ({profileDir: profileDir(), dshHome: paths.dshHome, skillsDir: paths.skillsDir});
+  const writeScopedSnapshot = async (cat, files) => {
+    const taken = new Set(await listLocalAll(cat));
     const base = Date.now();
     let stamp = 0;
     while (taken.has(snapshotId(new Date(base + stamp * 1_000)))) stamp += 1;
     const id = snapshotId(new Date(base + stamp * 1_000));
-    await writeLocal(backupRoot(), id, files);
-    await pruneLocal(backupRoot(), (await listLocal(backupRoot())).slice(0, LOCAL_KEEP));
-    return {id, files, entry: describeSnapshot(id, files)};
+    await writeLocal(backupRoot(cat), id, files, cat);
+    await pruneLocal(backupRoot(cat), (await listLocal(backupRoot(cat))).slice(0, LOCAL_KEEP));
+    return {id, files, entry: describeSnapshot(id, files, new Date().toISOString(), cat)};
+  };
+  const takeSnapshot = async (entries, category = CATEGORY) => {
+    const cat = assertCategory(category);
+    const files = await collectPluginFiles(profileDir(), entries);
+    return await writeScopedSnapshot(cat, files);
+  };
+  const takeModuleSnapshot = async (category, preCollected) => {
+    const cat = assertCategory(category);
+    const data = preCollected ?? await collectModuleData(cat, modulePaths());
+    return {data, ...(await writeScopedSnapshot(cat, data.files))};
   };
   const readSettings = async () => {
     const [webdav, git, target] = await Promise.all([KEY, GIT_KEY, TARGET_KEY].map(key => credentials.readRecord(key)));
     const saved = webdav?.payload ?? {};
+    const gitSaved = git?.payload ?? {};
+    const transport = target?.payload?.transport === 'git' ? 'git' : 'webdav';
     const parts = splitWebdavUrl(saved.url);
     const address = typeof saved.address === 'string' ? saved.address : parts.address;
     const dir = typeof saved.dir === 'string' ? saved.dir : parts.dir;
     // The stored URL is what names this target's state; only records without one are recomposed.
     const url = typeof saved.url === 'string' && saved.url ? saved.url : composeWebdavUrl(address, dir);
-    return {...DEFAULTS, ...saved, address, dir, url, git: {...GIT_DEFAULTS, ...git?.payload}, transport: target?.payload?.transport === 'git' ? 'git' : 'webdav'};
+    const webdavRetention = Number.isInteger(saved.retention) ? saved.retention : DEFAULTS.retention;
+    const gitRetention = Number.isInteger(gitSaved.retention) ? gitSaved.retention : webdavRetention;
+    return {
+      ...DEFAULTS, ...saved, address, dir, url,
+      retention: transport === 'git' ? gitRetention : webdavRetention,
+      git: {...GIT_DEFAULTS, ...gitSaved, retention: gitRetention},
+      transport,
+    };
   };
   const stateKeyFor = (settings, url) => 'kamisangk-dsh-sync/state-' + createHash('sha256')
     .update(JSON.stringify([process.env.DSH_PROFILE_DIR ?? process.env.DSH_PROFILE ?? '', ...(
@@ -189,13 +237,25 @@ export function syncService(manager, credentials, connect = createDav, connectGi
     let reportFailure;
     try {
       const settings = await readSettings();
+      const resolveCategory = value => {
+        try { return assertCategory(value ?? CATEGORY); }
+        catch { throw new RequestError('Invalid backup category.'); }
+      };
       const key = stateKey(settings);
       const state = await readState(settings);
       const direction = state.direction ?? 'both';
       const mayUpload = direction !== 'download';
       const mayDownload = direction !== 'upload';
-      const saveState = async (baseline, overview, nextDirection = direction) => {
-        await credentials.modifyRecord(key, () => ({kind: 'grant', payload: {version: 1, direction: nextDirection, baseline, overview}}));
+      const saveState = async (baseline, overview, nextDirection = direction, nextModules = state.modules ?? {}) => {
+        await credentials.modifyRecord(key, () => ({kind: 'grant', payload: {version: 1, direction: nextDirection, baseline, overview, modules: nextModules}}));
+      };
+      const saveModuleState = async (cat, patch) => {
+        const currentModules = structuredClone(state.modules ?? {});
+        const prev = currentModules[cat] ?? {direction: 'both', baseline: [], overview: {}};
+        currentModules[cat] = {...prev, ...patch};
+        state.modules = currentModules;
+        await saveState(state.baseline, state.overview, direction, currentModules);
+        return currentModules[cat];
       };
       const attempt = (outcomes, items) => ({at: new Date().toISOString(), direction,
         status: outcomes.some(item => !['applied', 'restart-required'].includes(item.status)) ? 'failed'
@@ -204,8 +264,13 @@ export function syncService(manager, credentials, connect = createDav, connectGi
       if (input.action === 'direction') {
         if (!DIRECTIONS.includes(input.direction)) throw new RequestError('Invalid sync direction.');
         if (!(settings.transport === 'git' ? settings.git.repo : settings.url)) throw new RequestError('Save a connection first.');
-        await saveState(state.baseline, state.overview, input.direction);
+        const cat = resolveCategory(input.category);
         plan = undefined;
+        if (cat !== CATEGORY) {
+          await saveModuleState(cat, {direction: input.direction});
+          return publicSettings(settings, state);
+        }
+        await saveState(state.baseline, state.overview, input.direction);
         return publicSettings(settings, {...state, direction: input.direction});
       }
       if (input.action === 'save') {
@@ -221,12 +286,16 @@ export function syncService(manager, credentials, connect = createDav, connectGi
           const same = ['repo', 'branch', 'auth', 'gitUsername'].every(field => updated[field] === settings.git[field]);
           if (input.git.token !== undefined && (typeof input.git.token !== 'string' || input.git.token.length > 2048 || /[\u0000\r\n]/.test(input.git.token))) throw new RequestError('Invalid Git token.');
           updated.token = updated.auth === 'https' ? input.git.token || (same ? settings.git.token : '') : '';
+          if (input.retention !== undefined && (!Number.isInteger(input.retention) || input.retention < 0 || input.retention > 50)) {
+            throw new RequestError('Invalid Git settings.');
+          }
+          updated.retention = input.retention !== undefined ? input.retention : settings.git.retention;
           updated.autoApply = input.autoApply && same && settings.transport === 'git';
           try { connectGit(updated); } catch (error) { throw new RequestError(error.message); }
           await credentials.modifyRecord(GIT_KEY, () => ({kind: 'grant', payload: updated}));
           await credentials.modifyRecord(TARGET_KEY, () => ({kind: 'grant', payload: {transport: 'git'}}));
           plan = undefined;
-          const next = {...settings, git: updated, transport: 'git'};
+          const next = {...settings, retention: updated.retention, git: updated, transport: 'git'};
           return publicSettings(next, await readState(next));
         }
         const {url, address, dir, username, password, retention, autoApply} = input;
@@ -278,24 +347,138 @@ export function syncService(manager, credentials, connect = createDav, connectGi
       let dav;
       try { dav = isGit ? connectGit(settings.git) : connect(settings); }
       catch (error) { throw new RequestError(error.message); }
-      if (input.action === 'backups') {
+      const buildBackupListing = async category => {
         const snapshots = [];
         let problem;
-        try { snapshots.push(...(await dav.backupRead()).snapshots); } catch (error) {
+        try { snapshots.push(...(await dav.backupRead(category)).snapshots); } catch (error) {
           if (!(error instanceof DavError || error instanceof GitError)) throw error;
           problem = error.message;
         }
-        // The local staging copies still exist when the remote side is unreachable, so they are listed too.
-        return {snapshots, local: await listLocal(backupRoot()), retention: settings.retention, ...(problem ? {error: problem} : {})};
+        const localIds = await listLocalAll(category);
+        const remoteMap = new Map(snapshots.map(item => [item.id, item]));
+        const localSet = new Set(localIds);
+        const allIds = [...new Set([...remoteMap.keys(), ...localIds])].sort().reverse();
+        const items = [];
+        for (const id of allIds) {
+          const remoteItem = remoteMap.get(id);
+          const hasLocal = localSet.has(id);
+          if (remoteItem) {
+            const totalBytes = Number.isSafeInteger(remoteItem.totalBytes)
+              ? remoteItem.totalBytes
+              : remoteItem.files.reduce((sum, f) => sum + f.bytes, 0);
+            items.push({
+              id,
+              name: remoteItem.name ?? snapshotName(category, id),
+              createdAt: remoteItem.createdAt,
+              totalBytes,
+              fileCount: remoteItem.files.length,
+              location: hasLocal ? 'both' : 'remote',
+              files: remoteItem.files,
+            });
+          } else {
+            const stats = await localStatsAny(category, id);
+            items.push({
+              id,
+              name: stats?.name ?? snapshotName(category, id),
+              createdAt: stats?.createdAt ?? null,
+              totalBytes: stats?.totalBytes ?? 0,
+              fileCount: stats?.fileCount ?? 0,
+              location: 'local',
+              files: [],
+            });
+          }
+        }
+        return {category, items, snapshots, local: localIds, retention: settings.retention, ...(problem ? {error: problem} : {})};
+      };
+      if (input.action === 'backups') {
+        const category = resolveCategory(input.category);
+        return await buildBackupListing(category);
+      }
+      if (input.action === 'backup_create') {
+        const category = resolveCategory(input.category);
+        let backup;
+        try {
+          if (category === CATEGORY) {
+            const here = await local();
+            backup = await takeSnapshot(here.entries, category);
+          } else {
+            backup = await takeModuleSnapshot(category);
+          }
+        } catch (error) {
+          throw new RequestError(error instanceof Error ? error.message : 'Could not back up the configuration.');
+        }
+        let uploaded = false;
+        if (settings.retention > 0) {
+          try {
+            await dav.backupWrite(backup.entry, backup.files, settings.retention, category);
+            uploaded = true;
+          } catch (error) {
+            throw new RequestError(error instanceof Error ? error.message : 'Could not upload the plugin backup.');
+          }
+        }
+        return {
+          category, id: backup.id, name: backup.entry.name,
+          totalBytes: backup.entry.totalBytes, uploaded,
+          listing: await buildBackupListing(category),
+        };
+      }
+      if (input.action === 'backup_delete') {
+        const category = resolveCategory(input.category);
+        if (!Array.isArray(input.ids) || input.ids.length === 0 || input.ids.some(id => typeof id !== 'string' || !SNAPSHOT_ID.test(id))) {
+          throw new RequestError('Select at least one valid backup id to delete.');
+        }
+        const ids = [...new Set(input.ids)];
+        const deleteLocalFlag = input.deleteLocal !== false;
+        let removed = [];
+        let remoteError;
+        if (typeof dav.backupDelete === 'function') {
+          try {
+            const outcome = await dav.backupDelete(ids, category);
+            removed = outcome.removed ?? [];
+          } catch (error) {
+            if (!(error instanceof DavError || error instanceof GitError)) throw error;
+            remoteError = error.message;
+          }
+        }
+        const localRemoved = deleteLocalFlag ? await deleteLocalAny(category, ids) : [];
+        if (remoteError && localRemoved.length === 0) throw new RequestError(remoteError);
+        const listing = await buildBackupListing(category);
+        return {category, removed, localRemoved, ...listing, ...(remoteError ? {error: remoteError} : {})};
       }
       if (input.action === 'restore') {
+        const category = resolveCategory(input.category);
         const id = typeof input.id === 'string' ? input.id : '';
-        if (!/^\d{8}-\d{6}$/.test(id)) throw new RequestError('Invalid backup id.');
+        if (!SNAPSHOT_ID.test(id)) throw new RequestError('Invalid backup id.');
         let files;
-        try { files = await dav.backupFetch(id); } catch (error) {
+        try { files = await dav.backupFetch(id, category); } catch (error) {
           if (!(error instanceof DavError || error instanceof GitError)) throw error;
-          files = await readLocal(backupRoot(), id);
+          files = await readLocalAny(category, id);
           if (!files) throw new RequestError(error.message);
+        }
+        if (category !== CATEGORY) {
+          let desired;
+          try { desired = parseModuleSnapshotItems(category, files); }
+          catch { throw new RequestError(`This backup has no usable ${category} data.`); }
+          let safety;
+          try { safety = await takeModuleSnapshot(category); } catch (error) {
+            throw new RequestError(error instanceof Error ? error.message : 'Could not back up the current configuration.');
+          }
+          const outcomes = await applyModuleItems(category, desired.map(remoteItem => ({kind: 'install', remote: remoteItem})), modulePaths());
+          const afterLocal = await collectModuleData(category, modulePaths());
+          const there = await dav.readModule(category);
+          const modPrev = state.modules?.[category] ?? {direction: 'both', baseline: [], overview: {}};
+          const summary = reconcileModule(afterLocal.items, there.items, modPrev.baseline ?? []);
+          const nextOverview = {
+            ...(modPrev.overview ?? {}),
+            checkedAt: new Date().toISOString(),
+            localCount: afterLocal.items.length,
+            remoteCount: there.items.length,
+            conflictCount: summary.items.filter(i => i.kind === 'conflict').length,
+            lastApply: applicationSummary(outcomes),
+            lastRestore: {at: new Date().toISOString(), id},
+          };
+          await saveModuleState(category, {baseline: summary.baseline, overview: nextOverview});
+          return {id, category, outcomes, extra: [], overview: nextOverview, safety: safety.id};
         }
         let desired;
         try { desired = parsePluginList(files['plugins.json'] ?? Buffer.alloc(0)); } catch {
@@ -304,7 +487,7 @@ export function syncService(manager, credentials, connect = createDav, connectGi
         const here = await local();
         // The current state is snapshotted first so a restore can itself be undone.
         let safety;
-        try { safety = await takeSnapshot(here.entries); } catch (error) {
+        try { safety = await takeSnapshot(here.entries, category); } catch (error) {
           throw new RequestError(error instanceof Error ? error.message : 'Could not back up the plugin configuration.');
         }
         const {items, extra} = restoreItems(here.entries, desired);
@@ -314,7 +497,7 @@ export function syncService(manager, credentials, connect = createDav, connectGi
           ...state.overview, outcomes, lastApply: applicationSummary(outcomes),
           lastRestore: {at: new Date().toISOString(), id},
         });
-        return {id, outcomes, extra, overview, safety: safety.id};
+        return {id, category, outcomes, extra, overview, safety: safety.id};
       }
       function directional(items) {
         return items.filter(item => item.kind === 'conflict' || item.kind === 'manual' ||
@@ -344,6 +527,126 @@ export function syncService(manager, credentials, connect = createDav, connectGi
         await saveState(state.baseline, overview);
         return {mode, overview};
       }
+      const activeCategory = resolveCategory(input.category ?? (['apply', 'resolve'].includes(input.action) ? plan?.category : undefined));
+      if (activeCategory !== CATEGORY && ['preview', 'sync', 'apply', 'resolve'].includes(input.action)) {
+        const modState = state.modules?.[activeCategory] ?? {direction: 'both', baseline: [], overview: {}};
+        const modDir = modState.direction ?? 'both';
+        const modMayUpload = modDir !== 'download';
+        const modMayDownload = modDir !== 'upload';
+        const modDirectional = items => items.filter(item => item.kind === 'conflict' ||
+          (['local-only', 'local-update'].includes(item.kind) ? modMayUpload : modMayDownload)).map(item => item.kind === 'conflict'
+          ? {...item, canPublishLocal: modMayUpload, canApplyRemote: modMayDownload}
+          : item);
+        const modRecord = async (hereItems, thereItems, extraOverview = {}) => {
+          const summary = reconcileModule(hereItems, thereItems, modState.baseline ?? []);
+          const visible = modDirectional(summary.items);
+          const nextOverview = {
+            ...(modState.overview ?? {}),
+            ...extraOverview,
+            checkedAt: new Date().toISOString(),
+            localCount: hereItems.length,
+            remoteCount: thereItems.length,
+            conflictCount: visible.filter(i => i.kind === 'conflict').length,
+          };
+          if (extraOverview.outcomes) {
+            nextOverview.lastAttempt = {
+              at: new Date().toISOString(),
+              direction: modDir,
+              status: extraOverview.outcomes.some(o => o.status !== 'applied') ? 'failed'
+                : visible.some(i => i.selectable || i.kind === 'conflict' || (modMayUpload && ['local-only', 'local-update'].includes(i.kind))) ? 'pending' : 'success',
+            };
+            delete nextOverview.outcomes;
+          }
+          await saveModuleState(activeCategory, {baseline: summary.baseline, overview: nextOverview});
+          return {items: visible, overview: nextOverview};
+        };
+        const modRemember = (items, extra) => {
+          const snap = structuredClone(items);
+          plan = {id: randomUUID(), at: Date.now(), category: activeCategory, items: snap};
+          return {id: plan.id, category: activeCategory, items: structuredClone(snap), ...extra};
+        };
+
+        if (input.action === 'preview') {
+          const [here, there] = await Promise.all([collectModuleData(activeCategory, modulePaths()), dav.readModule(activeCategory)]);
+          const {items, overview} = await modRecord(here.items, there.items);
+          return modRemember(items, {overview});
+        }
+        if (input.action === 'sync') {
+          plan = undefined;
+          const here = await collectModuleData(activeCategory, modulePaths());
+          let backup;
+          try { backup = await takeModuleSnapshot(activeCategory, here); } catch (error) {
+            throw new RequestError(error instanceof Error ? error.message : 'Could not back up the configuration.');
+          }
+          let published;
+          let backupUploaded = false;
+          if (modMayUpload) {
+            const currentRemote = await dav.readModule(activeCategory);
+            const preview = reconcileModule(here.items, currentRemote.items, modState.baseline ?? []);
+            const remoteWillChange = JSON.stringify(preview.nextItems) !== JSON.stringify(currentRemote.items);
+            const localWillAutoApply = modMayDownload && autoApply && modDirectional(preview.items).some(i => i.kind === 'install');
+            if (settings.retention > 0 && (remoteWillChange || localWillAutoApply)) {
+              try {
+                await dav.backupWrite(backup.entry, backup.files, settings.retention, activeCategory);
+                backupUploaded = true;
+              } catch (error) {
+                throw new RequestError(error instanceof Error ? error.message : 'Could not upload the configuration backup.');
+              }
+            }
+            published = await dav.updateModule(activeCategory, remoteItems => reconcileModule(here.items, remoteItems, modState.baseline ?? []).nextItems);
+          } else {
+            const there = await dav.readModule(activeCategory);
+            published = {items: there.items, added: 0, updated: 0};
+          }
+          const pending = modDirectional(reconcileModule(here.items, published.items, modState.baseline ?? []).items);
+          const outcomes = modMayDownload && autoApply ? await applyModuleItems(activeCategory, pending.filter(i => i.kind === 'install'), modulePaths()) : [];
+          const afterLocal = outcomes.length ? await collectModuleData(activeCategory, modulePaths()) : here;
+          const {items, overview} = await modRecord(afterLocal.items, published.items, {
+            outcomes,
+            lastSync: {at: new Date().toISOString(), added: published.added ?? 0, updated: published.updated ?? 0},
+            lastBackup: {at: new Date().toISOString(), id: backup.id, uploaded: backupUploaded},
+            ...(outcomes.length ? {lastApply: applicationSummary(outcomes)} : {}),
+          });
+          return modRemember(items, {overview, added: published.added ?? 0, updated: published.updated ?? 0, outcomes, backup: backup.id});
+        }
+        if (input.action === 'apply' || input.action === 'resolve') {
+          if (!plan || plan.id !== input.id || plan.category !== activeCategory || Date.now() - plan.at > PLAN_TTL) {
+            throw new RequestError('This plan expired. Preview again.');
+          }
+          if (input.action === 'resolve') {
+            const item = plan.items.find(c => (c.id === input.name || c.name === input.name) && c.kind === 'conflict');
+            if (!item || !((input.choice === 'local' && item.canPublishLocal) || (input.choice === 'remote' && item.canApplyRemote))) {
+              throw new RequestError('This conflict choice is not available.');
+            }
+            plan = undefined;
+            if (input.choice === 'local') {
+              const there = await dav.updateModule(activeCategory, remoteItems => remoteItems.map(r => r.id === item.id ? item.local : r));
+              const afterLocal = await collectModuleData(activeCategory, modulePaths());
+              const {items, overview} = await modRecord(afterLocal.items, there.items, {
+                outcomes: [],
+                lastSync: {at: new Date().toISOString(), added: there.added ?? 0, updated: there.updated ?? 0},
+              });
+              return modRemember(items, {overview, added: there.added ?? 0, updated: there.updated ?? 0, outcomes: []});
+            }
+            const outcomes = await applyModuleItems(activeCategory, [{...item, kind: 'upgrade'}], modulePaths());
+            const [afterLocal, there] = await Promise.all([collectModuleData(activeCategory, modulePaths()), dav.readModule(activeCategory)]);
+            const {items, overview} = await modRecord(afterLocal.items, there.items, {outcomes, lastApply: applicationSummary(outcomes)});
+            return modRemember(items, {overview, outcomes});
+          }
+          if (!Array.isArray(input.selected) || !input.selected.length || input.selected.some(id => typeof id !== 'string')) {
+            throw new RequestError('Select at least one change.');
+          }
+          const sel = new Set(input.selected);
+          const chosen = plan.items.filter(item => sel.has(item.id) && item.selectable);
+          if (chosen.length !== sel.size) throw new RequestError('This plan does not contain all the selected changes.');
+          plan = undefined;
+          const outcomes = await applyModuleItems(activeCategory, chosen, modulePaths());
+          const [afterLocal, there] = await Promise.all([collectModuleData(activeCategory, modulePaths()), dav.readModule(activeCategory)]);
+          const {overview} = await modRecord(afterLocal.items, there.items, {outcomes, lastApply: applicationSummary(outcomes)});
+          return {category: activeCategory, outcomes, overview};
+        }
+      }
+
       if (input.action === 'preview') {
         const [here, there] = await Promise.all([local(), dav.read()]);
         const {items, ...extra} = await record(here, there);
@@ -361,14 +664,22 @@ export function syncService(manager, credentials, connect = createDav, connectGi
         // The backup runs before anything reaches the remote manifest: a failure blocks the sync
         // instead of leaving the remote with no copy of the configuration that is about to change.
         let backup;
-        try { backup = await takeSnapshot(here.entries); } catch (error) {
+        try { backup = await takeSnapshot(here.entries, CATEGORY); } catch (error) {
           throw new RequestError(error instanceof Error ? error.message : 'Could not back up the plugin configuration.');
         }
         const mode = mayUpload ? await dav.mode() : undefined;
         let published;
+        let backupUploaded = false;
         if (mayUpload) {
-          if (settings.retention > 0) {
-            try { await dav.backupWrite(backup.entry, backup.files, settings.retention); } catch (error) {
+          const currentRemote = await dav.read();
+          const preview = reconcile(here, currentRemote.entries, state);
+          const remoteWillChange = JSON.stringify(preview.nextEntries) !== JSON.stringify(currentRemote.entries);
+          const localWillAutoApply = mayDownload && autoApply && directional(preview.items).some(item => item.kind === 'install');
+          if (settings.retention > 0 && (remoteWillChange || localWillAutoApply)) {
+            try {
+              await dav.backupWrite(backup.entry, backup.files, settings.retention, CATEGORY);
+              backupUploaded = true;
+            } catch (error) {
               throw new RequestError(error instanceof Error ? error.message : 'Could not upload the plugin backup.');
             }
           }
@@ -381,7 +692,7 @@ export function syncService(manager, credentials, connect = createDav, connectGi
         const {added = 0, updated = 0} = published;
         const {items, ...extra} = await record(await local(), published, {
           ...state.overview, outcomes, lastSync: {at: new Date().toISOString(), added, updated},
-          lastBackup: {at: new Date().toISOString(), id: backup.id, uploaded: mayUpload && settings.retention > 0},
+          lastBackup: {at: new Date().toISOString(), id: backup.id, uploaded: backupUploaded},
           ...(outcomes.length ? {lastApply: applicationSummary(outcomes)} : {}),
         }, mode);
         return remember(items, {...extra, added, updated, outcomes, backup: backup.id});
@@ -450,7 +761,7 @@ export function apply(ctx) {
   ctx.effect(() => ctx.tools.register({
     name: 'dsh_plugin_sync',
     description: 'Synchronize this machine\'s DeepSeek Harness plugin inventory over WebDAV or Git. ' +
-      'Actions: status, configure, direction, test, preview, sync, apply, resolve, backups, restore. No action uninstalls or downgrades. ' +
+      'Actions: status, configure, direction, test, preview, sync, apply, resolve, backups, backup_create, backup_delete, restore. No action uninstalls or downgrades. ' +
       'sync snapshots the current plugin configuration under backup/plugins/ before it touches the manifest. ' +
       'backups lists the remote snapshots; restore reinstalls the plugins recorded in one of them. ' +
       'sync respects the saved direction; it installs missing bundles only when downloads are allowed and autoApply is on. ' +
@@ -458,7 +769,7 @@ export function apply(ctx) {
     parameters: {
       type: 'object',
       properties: {
-        action: {type: 'string', enum: ['status', 'configure', 'direction', 'test', 'preview', 'sync', 'apply', 'resolve', 'backups', 'restore'], description: 'Operation to run.'},
+        action: {type: 'string', enum: ['status', 'configure', 'direction', 'test', 'preview', 'sync', 'apply', 'resolve', 'backups', 'backup_create', 'backup_delete', 'restore'], description: 'Operation to run.'},
         direction: {type: 'string', enum: ['upload', 'download', 'both'], description: 'direction: sync rule for the current target.'},
         transport: {type: 'string', enum: ['webdav', 'git'], description: 'configure: transport to activate.'},
         git: {type: 'object', required: ['repo'], additionalProperties: false, properties: {
@@ -476,6 +787,9 @@ export function apply(ctx) {
         choice: {type: 'string', enum: ['local', 'remote'], description: 'resolve: the side explicitly selected by the user.'},
         selected: {type: 'array', items: {type: 'string'}, description: 'apply: item ids from that plan.'},
         id: {type: 'string', description: 'restore: snapshot id reported by backups; apply or resolve: plan id.'},
+        category: {type: 'string', enum: ['plugins', 'settings', 'models', 'skills', 'mcp'], description: 'backups / backup_create / backup_delete / restore: backup module category. Defaults to plugins.'},
+        ids: {type: 'array', items: {type: 'string'}, description: 'backup_delete: snapshot ids to remove.'},
+        deleteLocal: {type: 'boolean', description: 'backup_delete: also remove matching local snapshots. Defaults to true.'},
       },
       required: ['action'],
       additionalProperties: false,
@@ -490,10 +804,13 @@ export function apply(ctx) {
           url: args.url ?? '', username: args.username ?? '', password: args.password,
           retention: args.retention ?? 10, autoApply: args.autoApply ?? false});
       }
-      if (args.action === 'apply') return operation({action: 'apply', id: args.id, selected: args.selected});
-      if (args.action === 'resolve') return operation({action: 'resolve', id: args.id, name: args.name, choice: args.choice});
-      if (args.action === 'restore') return operation({action: 'restore', id: args.id});
-      return operation({action: args.action, direction: args.direction});
+      if (args.action === 'apply') return operation({action: 'apply', category: args.category, id: args.id, selected: args.selected});
+      if (args.action === 'resolve') return operation({action: 'resolve', category: args.category, id: args.id, name: args.name, choice: args.choice});
+      if (args.action === 'backups') return operation({action: 'backups', category: args.category});
+      if (args.action === 'backup_create') return operation({action: 'backup_create', category: args.category});
+      if (args.action === 'backup_delete') return operation({action: 'backup_delete', category: args.category, ids: args.ids, deleteLocal: args.deleteLocal});
+      if (args.action === 'restore') return operation({action: 'restore', category: args.category, id: args.id});
+      return operation({action: args.action, category: args.category, direction: args.direction});
     },
   }));
   ctx.effect(() => ctx.webServer.register({kind: 'exact', path: '/kamisangk-dsh-sync/api', async handler(req, res) {

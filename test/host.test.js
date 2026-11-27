@@ -67,6 +67,14 @@ async function fixture({ bundles = [], plugins = [], remote = [{name:'remote-plu
         if (!files) throw new DavError(`Backup ${id} is not on the remote side`);
         return {...files};
       },
+      backupDelete: async ids => {
+        if (backupProblem) throw new DavError(backupProblem);
+        const set = new Set(ids);
+        const removed = backupIndex.filter(item => set.has(item.id)).map(item => item.id);
+        backupIndex = backupIndex.filter(item => !set.has(item.id));
+        for (const id of removed) backups.delete(id);
+        return {index: {version: 1, snapshots: structuredClone(backupIndex)}, removed};
+      },
     };
   }, undefined, {profileDir: profile});
   const op = start();
@@ -326,14 +334,14 @@ test('sync snapshots the plugin configuration before publishing it', async () =>
   const {op, save, profile, backups, remote} = await fixture({bundles: [{name: 'local-plugin', version: '1.0.0', spec: 'local-plugin@1.0.0', source: 'local-plugin@1.0.0', enabled: true}], remote: []});
   await save();
   const synced = await op({action: 'sync'});
-  const local = await readdir(join(profile, '.dsh-sync', 'backups'));
+  const local = await readdir(join(profile, '.dsh-sync', 'backups', 'plugins'));
   assert.equal(local.length, 1, 'one local snapshot exists');
   assert.equal(local[0], synced.backup, 'the reported id names the local folder');
   const listed = backups();
   assert.equal(listed.length, 1);
   assert.equal(listed[0].id, synced.backup);
   assert.equal(listed[0].files.length, 1, 'the temp profile has no package files, only the plugin list');
-  const plugins = JSON.parse(await readFile(join(profile, '.dsh-sync', 'backups', synced.backup, 'plugins.json'), 'utf8'));
+  const plugins = JSON.parse(await readFile(join(profile, '.dsh-sync', 'backups', 'plugins', synced.backup, 'plugins.json'), 'utf8'));
   assert.deepEqual(plugins.entries.map(entry => entry.name), ['local-plugin']);
   assert.deepEqual(remote.map(entry => entry.name), ['local-plugin'], 'the manifest is still published');
 });
@@ -365,7 +373,7 @@ test('retention zero keeps snapshots local and never uploads them', async () => 
 });
 
 test('backups lists remote snapshots and local staging copies', async () => {
-  const {op, save, failBackups} = await fixture();
+  const {op, save, failBackups} = await fixture({bundles: [{name: 'local-plugin', version: '1.0.0', spec: 'local-plugin@1.0.0', source: 'local-plugin@1.0.0', enabled: true}]});
   await save();
   await op({action: 'sync'});
   const listed = await op({action: 'backups'});
@@ -414,4 +422,32 @@ test('restore rejects an unknown or malformed backup id', async () => {
   await save();
   await assert.rejects(op({action: 'restore', id: '../etc'}), /Invalid backup id/);
   await assert.rejects(op({action: 'restore', id: '20260101-000000'}), /not on the remote side/);
+});
+
+test('unchanged sync keeps a local snapshot without uploading redundant remote backups', async () => {
+  const {op, save, backups} = await fixture({
+    bundles: [{name: 'same-plugin', version: '1.0.0', spec: 'same-plugin@1.0.0', source: 'same-plugin@1.0.0', enabled: true}],
+    remote: [{name: 'same-plugin', version: '1.0.0', spec: 'same-plugin@1.0.0', enabled: true}],
+  });
+  await save();
+  const synced = await op({action: 'sync'});
+  assert.equal(backups().length, 0, 'no remote backup is uploaded when nothing changes');
+  assert.equal(synced.overview.lastBackup.uploaded, false);
+});
+
+test('backup_create and backup_delete manage remote and local snapshots with size metadata', async () => {
+  const {op, save, backups} = await fixture({bundles: [{name: 'local-plugin', version: '1.0.0', spec: 'local-plugin@1.0.0', source: 'local-plugin@1.0.0', enabled: true}]});
+  await save();
+  const created1 = await op({action: 'backup_create', category: 'plugins'});
+  const created2 = await op({action: 'backup_create', category: 'plugins'});
+  assert.equal(created1.uploaded, true);
+  assert.equal(backups().length, 2);
+  const listed = await op({action: 'backups', category: 'plugins'});
+  assert.equal(listed.items.length, 2);
+  assert.ok(listed.items[0].name.startsWith('dsh-plugins.'));
+  assert.ok(listed.items[0].totalBytes > 0);
+  const deleted = await op({action: 'backup_delete', category: 'plugins', ids: [created1.id, created2.id]});
+  assert.equal(deleted.removed.length, 2);
+  assert.equal(deleted.localRemoved.length, 2);
+  assert.equal(deleted.items.length, 0);
 });
