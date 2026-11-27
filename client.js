@@ -140,6 +140,7 @@ window.__ModuleLoader__.load({
       'approval-required': 'Review build-script approval in DSH Plugin Manager.',
       overridden: 'Overridden by another setting',
       appliedStatus: 'Applied',
+      installedStatus: 'Installed',
       failed: 'Failed',
       cancelled: 'Cancelled',
       skipped: 'Skipped',
@@ -270,6 +271,7 @@ window.__ModuleLoader__.load({
       'approval-required': '请到 DSH 插件管理器审核构建脚本权限。',
       overridden: '被其他设置覆盖',
       appliedStatus: '已应用',
+      installedStatus: '已安装',
       failed: '失败',
       cancelled: '已取消',
       skipped: '已跳过',
@@ -820,7 +822,7 @@ window.__ModuleLoader__.load({
           outcomes.length > 0 && h('section', {'aria-label': t('outcomes')},
             h('h4', null, t('outcomes')),
             h('ul', null, ...outcomes.map((result, index) => h('li', {key: `${result.name}-${index}`},
-              `${result.name} · ${t(result.status === 'applied' ? 'appliedStatus' : result.status)}`,
+              `${result.name} · ${t(result.status === 'applied' ? (result.kind === 'install' ? 'installedStatus' : 'appliedStatus') : result.status)}`,
               result.detail && h('small', null, ` · ${result.detail}`))))));
       }
 

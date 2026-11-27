@@ -140,16 +140,16 @@ export function syncService(manager, credentials, connect = createDav, connectGi
           const result = await manager.updateBundle(entry.name, entry.version, entry.spec.startsWith('github:') ? {spec: entry.spec} : undefined);
           change = result.result;
           if (result.restore) {
-            outcomes.push({name: item.name, status: change.application, detail: `Restore: ${result.restore.application}`});
+            outcomes.push({name: item.name, kind: item.kind, status: change.application, detail: `Restore: ${result.restore.application}`});
             continue;
           }
         } else if (item.kind === 'enable' || item.kind === 'disable') {
           change = await setEnabled(entry.name, item.kind === 'enable');
         }
-        outcomes.push({name: item.name, status: change?.pendingBuilds?.length ? 'approval-required' : change?.application ?? 'failed',
+        outcomes.push({name: item.name, kind: item.kind, status: change?.pendingBuilds?.length ? 'approval-required' : change?.application ?? 'failed',
           ...(change?.error?.code ? {detail: change.error.code} : {})});
       } catch {
-        outcomes.push({name: item.name, status: 'failed'});
+        outcomes.push({name: item.name, kind: item.kind, status: 'failed'});
       }
     }
     return outcomes;

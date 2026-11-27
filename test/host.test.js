@@ -98,7 +98,7 @@ test('credentials are not returned; preview and default sync do not install', as
   const plan = await op({action: 'sync'});
   assert.deepEqual(calls, []);
   const applied = await op({action: 'apply', id: plan.id, selected: ['remote-plugin']});
-  assert.deepEqual(applied.outcomes, [{name: 'remote-plugin', status: 'restart-required'}]);
+  assert.deepEqual(applied.outcomes, [{name: 'remote-plugin', kind: 'install', status: 'restart-required'}]);
   assert.equal(applied.overview.lastApply.counts['restart-required'], 1);
   assert.deepEqual(calls, [['installBundle', 'remote-plugin@1.2.0', {enabled: false, saveExact: true, expected: {name: 'remote-plugin', version: '1.2.0'}}]]);
 });
@@ -132,8 +132,9 @@ test('auto-apply runs only on sync and only for missing bundles', async () => {
   await save({autoApply: true});
   await op({action: 'preview'});
   assert.equal(calls.length, 0);
-  await op({action: 'sync'});
+  const synced = await op({action: 'sync'});
   assert.equal(calls.length, 1);
+  assert.deepEqual(synced.outcomes, [{name: 'remote-plugin', kind: 'install', status: 'restart-required'}]);
   const next = await save({url: 'https://dav.example/other/', password: undefined, autoApply: true});
   assert.equal(next.autoApply, false);
   assert.equal(next.passwordSet, false);
@@ -153,7 +154,7 @@ test('enabling a bundle also clears the row-level disable that outranks it', asy
   const plan = await op({action: 'preview'});
   const enable = plan.items.find(item => item.kind === 'enable');
   const outcome = await op({action: 'apply', id: plan.id, selected: [enable.id]});
-  assert.deepEqual(outcome.outcomes, [{name: 'toggle-target', status: 'applied'}]);
+  assert.deepEqual(outcome.outcomes, [{name: 'toggle-target', kind: 'enable', status: 'applied'}]);
   assert.deepEqual(calls, [['setBundleEnabled', 'toggle-target', true], ['setPluginEnabled', 'include:toggle-row', true]]);
   assert.equal(state.plugins[0].enabled, true);
 });
@@ -173,7 +174,7 @@ test('a row pinned by a higher layer is reported without keeping the bundle sele
   const plan = await op({action: 'preview'});
   const enable = plan.items.find(item => item.kind === 'enable');
   const outcome = await op({action: 'apply', id: plan.id, selected: [enable.id]});
-  assert.deepEqual(outcome.outcomes, [{name: 'pinned-target', status: 'overridden'}]);
+  assert.deepEqual(outcome.outcomes, [{name: 'pinned-target', kind: 'enable', status: 'overridden'}]);
   assert.deepEqual(calls, [
     ['setBundleEnabled', 'pinned-target', true],
     ['setPluginEnabled', 'include:pinned-row', true],
@@ -228,7 +229,7 @@ test('disabling drops the bundle layer and reports the change', async () => {
   const disable = plan.items.find(item => item.kind === 'disable');
   assert.ok(disable, 'a disable item exists');
   const outcome = await op({action: 'apply', id: plan.id, selected: [disable.id]});
-  assert.deepEqual(outcome.outcomes, [{name: 'toggle-target', status: 'applied'}]);
+  assert.deepEqual(outcome.outcomes, [{name: 'toggle-target', kind: 'disable', status: 'applied'}]);
   assert.deepEqual(calls, [['setBundleEnabled', 'toggle-target', false]]);
 });
 
