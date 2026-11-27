@@ -105,4 +105,9 @@ render({0: 'sync', 1: settings, 2: draft, 8: ''});
 if (!calls.some(node => node.type === 'section')) throw new Error('the configured sync page rendered no card');
 flush('configured sync page');
 
+render({0: 'sync', 1: {...settings, webdavAutoApply: true}, 2: draft, 8: ''});
+const action = calls.find(node => node.type === 'button' && node.props.className === 'kds-primary');
+if (!action || action.props.children[0] !== 'sync') throw new Error('the sync button label changed when auto install was on');
+flush('sync page with auto install on');
+
 console.log(`module id: ${registered.id}`);

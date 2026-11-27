@@ -40,7 +40,6 @@ window.__ModuleLoader__.load({
       never_synced: 'Not synced yet',
       sync: 'Sync',
       retry: 'Retry',
-      sync_installs: 'Sync and install missing',
       show_details: 'Show differences',
       hide_details: 'Hide differences',
       refresh: 'Refresh status',
@@ -71,7 +70,6 @@ window.__ModuleLoader__.load({
       webdav_password: 'Password',
       retention: 'Remote backups to keep',
       auto_apply: 'Install missing plugins during sync',
-      auto_warning: 'Syncing will download and install plugins listed on the remote. Continue only if you trust everyone who can write there. Enable automatic installation?',
       git_repo: 'Repository URL',
       git_branch: 'Branch',
       git_auth: 'Authentication',
@@ -91,7 +89,6 @@ window.__ModuleLoader__.load({
       address_required: 'Enter the server address.',
       address_invalid: 'Enter an https:// address without user name, query or fragment.',
       dir_invalid: 'The folder cannot contain ? # \\ or a . or .. segment.',
-      confirm_sync: 'Sync now? Direction: {direction}. Remote target: {target}. Eligible local changes may be published. Conflicts require a separate decision.',
       confirm_keep_local: 'Publish this device version of “{name}” to {target}?',
       confirm_use_remote: 'Replace the local state of “{name}” with the remote version from {target}?',
       plan: 'Differences',
@@ -171,7 +168,6 @@ window.__ModuleLoader__.load({
       never_synced: '还没有同步过',
       sync: '同步',
       retry: '重试',
-      sync_installs: '同步并安装缺失',
       show_details: '显示差异',
       hide_details: '收起差异',
       refresh: '刷新状态',
@@ -202,7 +198,6 @@ window.__ModuleLoader__.load({
       webdav_password: '密码',
       retention: '远端备份保留数量',
       auto_apply: '同步时安装缺失插件',
-      auto_warning: '同步时会立即下载并安装远端清单中的插件。只有信任所有能写入该目标的人才应启用。要开启自动安装吗？',
       git_repo: '仓库地址',
       git_branch: '分支',
       git_auth: '认证方式',
@@ -222,7 +217,6 @@ window.__ModuleLoader__.load({
       address_required: '请填写地址。',
       address_invalid: '地址需为 https:// 开头的网址，且不含用户名、查询参数或锚点。',
       dir_invalid: '文件目录不能包含 ?、#、\\，也不能有 . 或 .. 路径段。',
-      confirm_sync: '现在同步吗？方向：{direction}；远端：{target}。符合规则的本机变更可能会发布，冲突需要单独确认。',
       confirm_keep_local: '确定把「{name}」的本机版本发布到 {target} 吗？',
       confirm_use_remote: '确定用 {target} 的版本替换「{name}」的本机状态吗？',
       plan: '差异',
@@ -476,9 +470,6 @@ window.__ModuleLoader__.load({
       })();
       const blocked = !!busy || dirty || !configured;
       const direction = saved?.direction ?? 'both';
-      const writesRemote = direction !== 'download';
-      // Host exposes the effective switch: git.autoApply in git mode, webdav switch otherwise.
-      const autoApply = direction !== 'upload' && (saved?.transport === 'git' ? saved.git.autoApply : saved?.webdavAutoApply) === true;
       const state = stateOf(configured ? saved : null, overview ?? saved?.overview);
 
       function applySettings(value) {
@@ -656,12 +647,6 @@ window.__ModuleLoader__.load({
 
       function syncNow() {
         if (blocked) return;
-        if (writesRemote) {
-          const question = t('confirm_sync')
-            .replace('{direction}', t(`dir_${direction}`))
-            .replace('{target}', targetLabel(saved));
-          if (!window.confirm(question)) return;
-        }
         // All three directions run through the same Host action; the Host applies the saved rule.
         void run('sync', async signal => {
           adopt(await request('sync', {expectedDirection: direction, expectedTarget: targetLabel(saved)}, signal), false);
@@ -669,7 +654,7 @@ window.__ModuleLoader__.load({
       }
 
       function preview() {
-        if (blocked || writesRemote === undefined) return;
+        if (blocked) return;
         void run('preview', async signal => {
           adopt(await request('preview', {}, signal));
         });
@@ -811,7 +796,7 @@ window.__ModuleLoader__.load({
               }, t(item.label))))),
           feedback(),
           h('div', {className: 'kds-row'},
-            configured && button(kind === 'failed' ? 'retry' : autoApply ? 'sync_installs' : 'sync', syncNow, blocked, {className: 'kds-primary'}),
+            configured && button(kind === 'failed' ? 'retry' : 'sync', syncNow, blocked, {className: 'kds-primary'}),
             configured && h('button', {
               type: 'button', className: 'kds-ghost', disabled: blocked,
               onClick: () => (plan ? setPlanOpen(!planOpen) : preview()),
@@ -875,10 +860,7 @@ window.__ModuleLoader__.load({
         return h('label', {className: 'kds-check'},
           h('input', {
             type: 'checkbox', checked, disabled: !!busy,
-            onChange: event => {
-              const next = event.target.checked;
-              if (!next || checked || window.confirm(t('auto_warning'))) onChange(next);
-            },
+            onChange: event => onChange(event.target.checked),
           }),
           h('span', null, t('auto_apply')));
       }
