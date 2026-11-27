@@ -138,6 +138,20 @@ window.__ModuleLoader__.load({
       overridden: 'Overridden by another setting',
       appliedStatus: 'Applied',
       installedStatus: 'Installed',
+      backups: 'Backups',
+      backup_note: 'A copy of this machine is saved before every sync. The remote keeps the newest {retention}.',
+      backup_time: 'Time',
+      backup_where: 'Where',
+      backup_files: 'Files',
+      backup_remote: 'Remote',
+      backup_local_only: 'Local only',
+      backup_empty: 'No backups yet. Run a sync to create the first one.',
+      backup_remote_failed: 'Remote backups could not be read: {error}',
+      backup_unavailable: 'The remote index is unavailable; local copies can still be restored.',
+      restore: 'Restore',
+      restored: 'Backup restored.',
+      confirm_restore: 'Restore the plugins recorded in backup {id}? Plugins installed now that are not in that backup keep their current state.',
+      restore_kept: 'Kept because the backup does not include it.',
       failed: 'Failed',
       cancelled: 'Cancelled',
       skipped: 'Skipped',
@@ -266,6 +280,20 @@ window.__ModuleLoader__.load({
       overridden: '被其他设置覆盖',
       appliedStatus: '已应用',
       installedStatus: '已安装',
+      backups: '备份',
+      backup_note: '每次同步前都会备份本机配置，远端保留最新的 {retention} 份。',
+      backup_time: '时间',
+      backup_where: '位置',
+      backup_files: '文件',
+      backup_remote: '远端',
+      backup_local_only: '仅本机',
+      backup_empty: '还没有备份，运行一次同步会创建第一份。',
+      backup_remote_failed: '读取远端备份失败：{error}',
+      backup_unavailable: '远端索引不可用，本机副本仍可还原。',
+      restore: '还原',
+      restored: '备份已还原。',
+      confirm_restore: '还原备份 {id} 里的插件？当前已安装、但该备份里没有的插件会保持现状。',
+      restore_kept: '该备份未包含，保持现状。',
       failed: '失败',
       cancelled: '已取消',
       skipped: '已跳过',
@@ -450,6 +478,7 @@ window.__ModuleLoader__.load({
       const [planOpen, setPlanOpen] = useState(false);
       const [selected, setSelected] = useState(() => new Set());
       const [outcomes, setOutcomes] = useState([]);
+      const [backups, setBackups] = useState(null);
       const [busy, setBusy] = useState('status');
       const [message, setMessage] = useState('');
       const [error, setError] = useState('');
@@ -484,6 +513,7 @@ window.__ModuleLoader__.load({
         const directionChanged = previous?.direction !== next.direction;
         if (targetChanged) {
           setOverview(next.overview ?? null);
+          setBackups(null);
         }
         if (targetChanged || directionChanged) {
           setPlan(null);
@@ -523,8 +553,29 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // Backup listing is secondary: a failure shows inside the card instead of
+      // replacing the plugin status, and a stale list is better than none.
+      async function refreshBackups(signal) {
+        try {
+          setBackups(await request('backups', {}, signal));
+        } catch (cause) {
+          if (!signal?.aborted) {
+            setBackups({snapshots: [], local: [], error: cause instanceof Error ? cause.message : 'requestFailed'});
+          }
+        }
+      }
+
+      function loadBackups() {
+        if (!configured) return;
+        void run('backups', signal => refreshBackups(signal));
+      }
+
       function load() {
-        return run('status', async signal => applySettings(await request('status', {}, signal)));
+        return run('status', async signal => {
+          const value = await request('status', {}, signal);
+          applySettings(value);
+          if (configuredOf(value)) await refreshBackups(signal);
+        });
       }
 
       // Feedback belongs to the view that started the action, so switching tabs
@@ -650,6 +701,7 @@ window.__ModuleLoader__.load({
         // All three directions run through the same Host action; the Host applies the saved rule.
         void run('sync', async signal => {
           adopt(await request('sync', {expectedDirection: direction, expectedTarget: targetLabel(saved)}, signal), false);
+          await refreshBackups(signal);
         }, 'sync_done');
       }
 
@@ -822,6 +874,53 @@ window.__ModuleLoader__.load({
               h('span', {className: 'kds-note'}, t(`scope_${scope.id}_detail`))))));
       }
 
+      function restore(snapshotId) {
+        if (blocked) return;
+        if (!window.confirm(t('confirm_restore').replace('{id}', snapshotId))) return;
+        void run('restore', async signal => {
+          const value = await request('restore', {id: snapshotId}, signal);
+          if (value?.overview) setOverview(value.overview);
+          const kept = Array.isArray(value?.extra)
+            ? value.extra.map(name => ({name, status: 'skipped', detail: t('restore_kept')}))
+            : [];
+          setOutcomes([...(Array.isArray(value?.outcomes) ? value.outcomes : []), ...kept]);
+          setPlan(null);
+          setPlanOpen(false);
+          setSelected(new Set());
+          await refreshBackups(signal);
+        }, 'restored');
+      }
+
+      function backupCard() {
+        const remote = new Map((backups?.snapshots ?? []).map(item => [item.id, item]));
+        const ids = [...new Set([...remote.keys(), ...(backups?.local ?? [])])].sort().reverse();
+        const rows = ids.map(snapshotId => {
+          const found = remote.get(snapshotId);
+          return h('tr', {key: snapshotId},
+            h('td', null, found ? new Date(found.createdAt).toLocaleString() : snapshotId, found && h('small', null, snapshotId)),
+            h('td', null, found ? badge('ok', 'backup_remote') : badge('idle', 'backup_local_only')),
+            h('td', null, found ? t('backup_files').replace('{count}', String(found.files.length)) : t('nothing')),
+            h('td', null, h('button', {
+              type: 'button', disabled: blocked,
+              onClick: () => restore(snapshotId),
+            }, t('restore'))));
+        });
+        return h('section', {className: 'kds-module', 'aria-labelledby': `${id}-backups`},
+          h('div', {className: 'kds-module-head'},
+            h('div', {className: 'kds-module-title'},
+              h('span', {className: 'kds-dot', 'aria-hidden': true}),
+              h('h3', {id: `${id}-backups`}, t('backups'))),
+            h('button', {type: 'button', className: 'kds-ghost', disabled: !!busy || dirty, onClick: loadBackups}, t('refresh'))),
+          h('p', {className: 'kds-note'}, t('backup_note').replace('{retention}', String(saved?.retention ?? 10))),
+          backups?.error && h('p', {className: 'kds-error'}, t('backup_remote_failed').replace('{error}',
+            backups.error.startsWith('requestFailed|')
+              ? `${t('requestFailed')} (${backups.error.split('|')[1]})`
+              : backups.error)),
+          rows.length > 0
+            ? h(Table, {label: 'backups', columns: ['backup_time', 'backup_where', 'backup_files', 'action'], t, rows})
+            : h('p', {className: 'kds-note'}, backups?.error ? t('backup_unavailable') : t('backup_empty')));
+      }
+
       function syncPage() {
         return h('section', {'aria-label': t('tab_sync')},
           !saved && h('div', {className: 'kds-row'},
@@ -832,6 +931,7 @@ window.__ModuleLoader__.load({
             h('p', {className: 'kds-note'}, t('connection_missing')),
             h('button', {type: 'button', className: 'kds-primary', onClick: () => go('connection')}, t('tab_connection'))),
           saved && pluginCard(),
+          saved && configured && backupCard(),
           reservedCards());
       }
 

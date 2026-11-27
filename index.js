@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { createDav, DavError } from './lib/core.js';
+import { collectPluginFiles, describeSnapshot, listLocal, parsePluginList, pruneLocal, readLocal, restoreItems, snapshotId, writeLocal } from './lib/backup.js';
 import { createGit, GitError } from './lib/git.js';
 import { planReconciliation } from './lib/reconcile.js';
 import { inventory } from './lib/planner.js';
@@ -9,6 +11,8 @@ const KEY = 'kamisangk-dsh-sync/webdav';
 const DEFAULTS = {address: '', dir: '', url: '', username: '', password: '', retention: 10, autoApply: false};
 const MAX_BODY = 32 * 1024;
 const PLAN_TTL = 10 * 60_000;
+/** Local snapshots kept as a staging copy next to the profile; the remote copy is the one retention trims. */
+const LOCAL_KEEP = 10;
 
 class RequestError extends Error {}
 
@@ -49,10 +53,27 @@ function publicSettings(settings, state) {
     direction: state.direction ?? 'both', overview: state.overview};
 }
 
-export function syncService(manager, credentials, connect = createDav, connectGit = createGit) {
+export function syncService(manager, credentials, connect = createDav, connectGit = createGit, paths = {}) {
   let plan;
   let busy = false;
+  // Tests hand over an isolated profile directory; the Host always leaves `paths` empty.
+  const profileDir = () => paths.profileDir ?? process.env.DSH_PROFILE_DIR ?? process.env.DSH_PROFILE ?? process.cwd();
+  const backupRoot = () => paths.backupRoot ?? join(profileDir(), '.dsh-sync', 'backups');
   const local = async () => inventory(await manager.listBundles(), await manager.listPlugins());
+  /** Snapshots the plugin configuration the machine has right now, locally and ready to upload. */
+  const takeSnapshot = async entries => {
+    const files = await collectPluginFiles(profileDir(), entries);
+    // Two snapshots taken in the same second still get distinct ids, so a restore's safety copy
+    // never overwrites the snapshot it is restoring from.
+    const taken = new Set(await listLocal(backupRoot()));
+    const base = Date.now();
+    let stamp = 0;
+    while (taken.has(snapshotId(new Date(base + stamp * 1_000)))) stamp += 1;
+    const id = snapshotId(new Date(base + stamp * 1_000));
+    await writeLocal(backupRoot(), id, files);
+    await pruneLocal(backupRoot(), (await listLocal(backupRoot())).slice(0, LOCAL_KEEP));
+    return {id, files, entry: describeSnapshot(id, files)};
+  };
   const readSettings = async () => {
     const [webdav, git, target] = await Promise.all([KEY, GIT_KEY, TARGET_KEY].map(key => credentials.readRecord(key)));
     const saved = webdav?.payload ?? {};
@@ -257,6 +278,44 @@ export function syncService(manager, credentials, connect = createDav, connectGi
       let dav;
       try { dav = isGit ? connectGit(settings.git) : connect(settings); }
       catch (error) { throw new RequestError(error.message); }
+      if (input.action === 'backups') {
+        const snapshots = [];
+        let problem;
+        try { snapshots.push(...(await dav.backupRead()).snapshots); } catch (error) {
+          if (!(error instanceof DavError || error instanceof GitError)) throw error;
+          problem = error.message;
+        }
+        // The local staging copies still exist when the remote side is unreachable, so they are listed too.
+        return {snapshots, local: await listLocal(backupRoot()), retention: settings.retention, ...(problem ? {error: problem} : {})};
+      }
+      if (input.action === 'restore') {
+        const id = typeof input.id === 'string' ? input.id : '';
+        if (!/^\d{8}-\d{6}$/.test(id)) throw new RequestError('Invalid backup id.');
+        let files;
+        try { files = await dav.backupFetch(id); } catch (error) {
+          if (!(error instanceof DavError || error instanceof GitError)) throw error;
+          files = await readLocal(backupRoot(), id);
+          if (!files) throw new RequestError(error.message);
+        }
+        let desired;
+        try { desired = parsePluginList(files['plugins.json'] ?? Buffer.alloc(0)); } catch {
+          throw new RequestError('This backup has no usable plugin list.');
+        }
+        const here = await local();
+        // The current state is snapshotted first so a restore can itself be undone.
+        let safety;
+        try { safety = await takeSnapshot(here.entries); } catch (error) {
+          throw new RequestError(error instanceof Error ? error.message : 'Could not back up the plugin configuration.');
+        }
+        const {items, extra} = restoreItems(here.entries, desired);
+        const outcomes = await applyItems(items);
+        const there = await dav.read();
+        const {overview} = await record(await local(), there, {
+          ...state.overview, outcomes, lastApply: applicationSummary(outcomes),
+          lastRestore: {at: new Date().toISOString(), id},
+        });
+        return {id, outcomes, extra, overview, safety: safety.id};
+      }
       function directional(items) {
         return items.filter(item => item.kind === 'conflict' || item.kind === 'manual' ||
           (['local-only', 'local-update'].includes(item.kind) ? mayUpload : mayDownload)).map(item => item.kind === 'conflict'
@@ -299,16 +358,33 @@ export function syncService(manager, credentials, connect = createDav, connectGi
         }
         plan = undefined;
         const here = await local();
+        // The backup runs before anything reaches the remote manifest: a failure blocks the sync
+        // instead of leaving the remote with no copy of the configuration that is about to change.
+        let backup;
+        try { backup = await takeSnapshot(here.entries); } catch (error) {
+          throw new RequestError(error instanceof Error ? error.message : 'Could not back up the plugin configuration.');
+        }
         const mode = mayUpload ? await dav.mode() : undefined;
-        const published = mayUpload ? await dav.update(entries => reconcile(here, entries, state).nextEntries, settings.retention) : await dav.read();
+        let published;
+        if (mayUpload) {
+          if (settings.retention > 0) {
+            try { await dav.backupWrite(backup.entry, backup.files, settings.retention); } catch (error) {
+              throw new RequestError(error instanceof Error ? error.message : 'Could not upload the plugin backup.');
+            }
+          }
+          published = await dav.update(entries => reconcile(here, entries, state).nextEntries, settings.retention);
+        } else {
+          published = await dav.read();
+        }
         const pending = directional(reconcile(here, published.entries, state).items);
         const outcomes = mayDownload && autoApply ? await applyItems(pending.filter(item => item.kind === 'install')) : [];
         const {added = 0, updated = 0} = published;
         const {items, ...extra} = await record(await local(), published, {
           ...state.overview, outcomes, lastSync: {at: new Date().toISOString(), added, updated},
+          lastBackup: {at: new Date().toISOString(), id: backup.id, uploaded: mayUpload && settings.retention > 0},
           ...(outcomes.length ? {lastApply: applicationSummary(outcomes)} : {}),
         }, mode);
-        return remember(items, {...extra, added, updated, outcomes});
+        return remember(items, {...extra, added, updated, outcomes, backup: backup.id});
       }
       if (input.action === 'apply' || input.action === 'resolve') {
         if (!plan || plan.id !== input.id || Date.now() - plan.at > PLAN_TTL) throw new RequestError('This plan expired. Preview again.');
@@ -374,13 +450,15 @@ export function apply(ctx) {
   ctx.effect(() => ctx.tools.register({
     name: 'dsh_plugin_sync',
     description: 'Synchronize this machine\'s DeepSeek Harness plugin inventory over WebDAV or Git. ' +
-      'Actions: status, configure, direction, test, preview, sync, apply, resolve. No action uninstalls or downgrades. ' +
+      'Actions: status, configure, direction, test, preview, sync, apply, resolve, backups, restore. No action uninstalls or downgrades. ' +
+      'sync snapshots the current plugin configuration under backup/plugins/ before it touches the manifest. ' +
+      'backups lists the remote snapshots; restore reinstalls the plugins recorded in one of them. ' +
       'sync respects the saved direction; it installs missing bundles only when downloads are allowed and autoApply is on. ' +
       'apply uses selected plan items. resolve uses the side the user explicitly chose for a named conflict.',
     parameters: {
       type: 'object',
       properties: {
-        action: {type: 'string', enum: ['status', 'configure', 'direction', 'test', 'preview', 'sync', 'apply', 'resolve'], description: 'Operation to run.'},
+        action: {type: 'string', enum: ['status', 'configure', 'direction', 'test', 'preview', 'sync', 'apply', 'resolve', 'backups', 'restore'], description: 'Operation to run.'},
         direction: {type: 'string', enum: ['upload', 'download', 'both'], description: 'direction: sync rule for the current target.'},
         transport: {type: 'string', enum: ['webdav', 'git'], description: 'configure: transport to activate.'},
         git: {type: 'object', required: ['repo'], additionalProperties: false, properties: {
@@ -394,10 +472,10 @@ export function apply(ctx) {
         password: {type: 'string', description: 'configure: WebDAV password. It is stored in the DSH credential store, never in the remote list; omit it to keep the saved one.'},
         retention: {type: 'integer', minimum: 0, maximum: 50, description: 'configure: remote backups to keep, 0-50; the current list is not counted.'},
         autoApply: {type: 'boolean', description: 'configure: install missing bundles during sync. Defaults to false.'},
-        id: {type: 'string', description: 'apply or resolve: plan id returned by preview or sync.'},
         name: {type: 'string', description: 'resolve: name of the conflicting plugin.'},
         choice: {type: 'string', enum: ['local', 'remote'], description: 'resolve: the side explicitly selected by the user.'},
         selected: {type: 'array', items: {type: 'string'}, description: 'apply: item ids from that plan.'},
+        id: {type: 'string', description: 'restore: snapshot id reported by backups; apply or resolve: plan id.'},
       },
       required: ['action'],
       additionalProperties: false,
@@ -414,6 +492,7 @@ export function apply(ctx) {
       }
       if (args.action === 'apply') return operation({action: 'apply', id: args.id, selected: args.selected});
       if (args.action === 'resolve') return operation({action: 'resolve', id: args.id, name: args.name, choice: args.choice});
+      if (args.action === 'restore') return operation({action: 'restore', id: args.id});
       return operation({action: args.action, direction: args.direction});
     },
   }));

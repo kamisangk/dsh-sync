@@ -90,22 +90,29 @@ const settings = {
 };
 const draft = {...settings, password: '', git: {...settings.git, token: ''}};
 
-render({0: 'connection', 1: settings, 2: draft, 8: ''});
+render({0: 'connection', 1: settings, 2: draft, 9: ''});
 if (!hasInput(settings.address) || !hasInput(settings.dir)) throw new Error('the connection page did not bind the address and folder fields');
 if (!hasPlaceholder('https://webdav.example.com/dav') || !hasPlaceholder('/dsh-sync')) {
   throw new Error('the address and folder inputs are missing');
 }
 flush('WebDAV connection page');
 
-render({0: 'connection', 1: {...settings, transport: 'git'}, 2: {...draft, transport: 'git'}, 8: ''});
+render({0: 'connection', 1: {...settings, transport: 'git'}, 2: {...draft, transport: 'git'}, 9: ''});
 if (!hasPlaceholder('git@github.com:owner/repo.git')) throw new Error('the Git connection page did not render');
 flush('Git connection page');
 
-render({0: 'sync', 1: settings, 2: draft, 8: ''});
+render({0: 'sync', 1: settings, 2: draft, 9: ''});
 if (!calls.some(node => node.type === 'section')) throw new Error('the configured sync page rendered no card');
 flush('configured sync page');
 
-render({0: 'sync', 1: {...settings, webdavAutoApply: true}, 2: draft, 8: ''});
+render({0: 'sync', 1: settings, 2: draft, 8: {snapshots: [
+  {id: '20260101-000000', createdAt: '2026-01-01T00:00:00.000Z', files: [{path: 'plugins.json', bytes: 2, sha256: '00'}]},
+], local: ['20260101-000001']}, 9: '', 12: null});
+if (!calls.some(node => node.type === 'button' && node.props.children[0] === 'restore')) throw new Error('the backup card rendered no restore action');
+if (!calls.some(node => node.type === 'span' && node.props.children[0] === 'backup_local_only')) throw new Error('a local-only backup was not marked as such');
+flush('sync page with backups');
+
+render({0: 'sync', 1: {...settings, webdavAutoApply: true}, 2: draft, 9: ''});
 const action = calls.find(node => node.type === 'button' && node.props.className === 'kds-primary');
 if (!action || action.props.children[0] !== 'sync') throw new Error('the sync button label changed when auto install was on');
 flush('sync page with auto install on');

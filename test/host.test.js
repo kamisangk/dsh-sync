@@ -1,11 +1,19 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { composeWebdavUrl, splitWebdavUrl, syncService } from '../index.js';
+import { DavError } from '../lib/core.js';
 
-function fixture({ bundles = [], plugins = [], remote = [{name:'remote-plugin', version:'1.2.0', spec:'remote-plugin@1.2.0', enabled:false}], rowOverride = false } = {}) {
+async function fixture({ bundles = [], plugins = [], remote = [{name:'remote-plugin', version:'1.2.0', spec:'remote-plugin@1.2.0', enabled:false}], rowOverride = false } = {}) {
   const records = new Map();
+  const profile = await mkdtemp(join(tmpdir(), 'dsh-sync-host-'));
   let historyCount = 0;
+  const backups = new Map();
+  let backupIndex = [];
+  let backupProblem;
   const calls = [];
   const state = {bundles: bundles.map(bundle => ({...bundle})), plugins: plugins.map(plugin => ({...plugin}))};
   const manager = {
@@ -43,15 +51,32 @@ function fixture({ bundles = [], plugins = [], remote = [{name:'remote-plugin', 
         return {entries: structuredClone(remote), added, updated, historyCount};
       },
       mode: async () => 'lock',
+      backupRead: async () => {
+        if (backupProblem) throw new DavError(backupProblem);
+        return {version: 1, snapshots: structuredClone(backupIndex)};
+      },
+      backupWrite: async (entry, files, retention) => {
+        if (backupProblem) throw new DavError(backupProblem);
+        backups.set(entry.id, Object.fromEntries(Object.entries(files).map(([name, body]) => [name, Buffer.from(body)])));
+        backupIndex = [structuredClone(entry), ...backupIndex.filter(item => item.id !== entry.id)].slice(0, retention);
+        return {index: {version: 1, snapshots: structuredClone(backupIndex)}};
+      },
+      backupFetch: async id => {
+        if (backupProblem) throw new DavError(backupProblem);
+        const files = backups.get(id);
+        if (!files) throw new DavError(`Backup ${id} is not on the remote side`);
+        return {...files};
+      },
     };
-  });
+  }, undefined, {profileDir: profile});
   const op = start();
   const save = (more = {}) => op({action: 'save', url: 'https://dav.example/sync/', username: 'me', password: 'test-password', retention: 10, autoApply: false, ...more});
-  return {op, save, calls, state, remote, start, records};
+  return {op, save, calls, state, remote, start, records, profile, backups: () => backupIndex,
+    failBackups: message => { backupProblem = message; }, dropRemoteBackups: () => { backupIndex = []; backups.clear(); }};
 }
 
 test('download never publishes and switching direction invalidates plans', async () => {
-  const {op, save, calls, remote, start} = fixture({bundles: [{name: 'local-plugin', version: '1.0.0', spec: 'local-plugin@1.0.0', enabled: true}]});
+  const {op, save, calls, remote, start} = await fixture({bundles: [{name: 'local-plugin', version: '1.0.0', spec: 'local-plugin@1.0.0', source: 'local-plugin@1.0.0', enabled: true}]});
   await save();
   await save({autoApply: true});
   await op({action: 'direction', direction: 'download'});
@@ -72,7 +97,7 @@ test('download never publishes and switching direction invalidates plans', async
 });
 
 test('Git settings preserve separate WebDAV state and never expose tokens', async () => {
-  const {op, save, start} = fixture();
+  const {op, save, start} = await fixture();
   await save();
   await op({action: 'direction', direction: 'upload'});
   const git = {repo: 'https://git.example/sync.git', auth: 'https', token: 'test-token-rn0'};
@@ -89,7 +114,7 @@ test('Git settings preserve separate WebDAV state and never expose tokens', asyn
 });
 
 test('credentials are not returned; preview and default sync do not install', async () => {
-  const {op, save, calls} = fixture();
+  const {op, save, calls} = await fixture();
   assert.equal((await op({action: 'status'})).autoApply, false);
   const saved = await save();
   assert.equal(saved.passwordSet, true);
@@ -104,7 +129,7 @@ test('credentials are not returned; preview and default sync do not install', as
 });
 
 test('the saved connection test reports the detected write strategy', async () => {
-  const {op, save} = fixture();
+  const {op, save} = await fixture();
   await save();
   assert.equal((await op({action: 'test'})).mode, 'lock');
   // The saved settings decide the connection; caller-supplied fields are ignored.
@@ -112,13 +137,13 @@ test('the saved connection test reports the detected write strategy', async () =
 });
 
 test('a missing URL is reported before any network access', async () => {
-  const {op} = fixture();
+  const {op} = await fixture();
   await assert.rejects(op({action: 'test'}), /Save a connection first/);
   await assert.rejects(op({action: 'save', url: 'http://dav.example/', username: '', password: '', retention: 10, autoApply: false}), /HTTPS collection URL/);
 });
 
 test('a changed remote inventory invalidates the plan before installing', async () => {
-  const {op, save, calls, remote} = fixture();
+  const {op, save, calls, remote} = await fixture();
   await save();
   const plan = await op({action: 'preview'});
   remote[0].enabled = true;
@@ -127,7 +152,7 @@ test('a changed remote inventory invalidates the plan before installing', async 
 });
 
 test('auto-apply runs only on sync and only for missing bundles', async () => {
-  const {op, save, calls} = fixture();
+  const {op, save, calls} = await fixture();
   await save();
   await save({autoApply: true});
   await op({action: 'preview'});
@@ -141,7 +166,7 @@ test('auto-apply runs only on sync and only for missing bundles', async () => {
 });
 
 test('enabling a bundle also clears the row-level disable that outranks it', async () => {
-  const {op, save, calls, state, remote} = fixture({
+  const {op, save, calls, state, remote} = await fixture({
     bundles: [{name: 'toggle-target', version: '1.0.0', source: 'toggle-target@^1.0.0', enabled: false, update: 'registry',
       rows: [{rowId: 'toggle-row', moduleName: 'toggle-target', entryId: 'include:toggle-row'}]}],
     plugins: [{entryId: 'include:toggle-row', moduleName: 'toggle-target', enabled: false}],
@@ -160,7 +185,7 @@ test('enabling a bundle also clears the row-level disable that outranks it', asy
 });
 
 test('a row pinned by a higher layer is reported without keeping the bundle selection', async () => {
-  const {op, save, calls, state, remote} = fixture({
+  const {op, save, calls, state, remote} = await fixture({
     rowOverride: true,
     bundles: [{name: 'pinned-target', version: '1.0.0', source: 'pinned-target@^1.0.0', enabled: false, update: 'registry',
       rows: [{rowId: 'pinned-row', moduleName: 'pinned-target', entryId: 'include:pinned-row'}]}],
@@ -185,7 +210,7 @@ test('a row pinned by a higher layer is reported without keeping the bundle sele
 });
 
 test('a remembered baseline survives service restart and separates publish from conflict', async () => {
-  const {op, save, state, remote, start} = fixture({
+  const {op, save, state, remote, start} = await fixture({
     bundles: [{name: 'alpha', version: '1.0.0', source: 'alpha@1.0.0', enabled: true, update: 'registry'}],
     remote: [{name: 'alpha', version: '1.0.0', spec: 'alpha@1.0.0', enabled: true}],
   });
@@ -215,7 +240,7 @@ test('a remembered baseline survives service restart and separates publish from 
 });
 
 test('disabling drops the bundle layer and reports the change', async () => {
-  const {op, save, calls, remote} = fixture({
+  const {op, save, calls, remote} = await fixture({
     bundles: [{name: 'toggle-target', version: '1.0.0', source: 'toggle-target@^1.0.0', enabled: true, update: 'registry',
       rows: [{rowId: 'toggle-row', moduleName: 'toggle-target', entryId: 'include:toggle-row'}]}],
     plugins: [{entryId: 'include:toggle-row', moduleName: 'toggle-target', enabled: true}],
@@ -248,7 +273,7 @@ test('the URL split and join cover the shapes a user types', () => {
 });
 
 test('WebDAV saves the address and folder as separate fields', async () => {
-  const {op, save, records} = fixture();
+  const {op, save, records} = await fixture();
   const saved = await save({url: undefined, address: 'https://dav.example/dav/', dir: '/team/sync/'});
   assert.equal(saved.address, 'https://dav.example/dav');
   assert.equal(saved.dir, '/team/sync/', 'the folder keeps the slashes the user typed');
@@ -268,7 +293,7 @@ test('WebDAV saves the address and folder as separate fields', async () => {
 });
 
 test('a legacy single-URL record keeps its state key after the split', async () => {
-  const {op, records, save} = fixture();
+  const {op, records, save} = await fixture();
   records.set('kamisangk-dsh-sync/webdav', {kind: 'grant', payload: {
     url: 'https://dav.example/sync/', username: 'me', password: 'test-password', retention: 10, autoApply: false,
   }});
@@ -283,7 +308,7 @@ test('a legacy single-URL record keeps its state key after the split', async () 
 });
 
 test('state keyed on the URL text with a trailing slash is still found and migrated', async () => {
-  const {op, records, save} = fixture();
+  const {op, records, save} = await fixture();
   const profile = process.env.DSH_PROFILE_DIR ?? process.env.DSH_PROFILE ?? '';
   const keyOf = url => 'kamisangk-dsh-sync/state-' + createHash('sha256')
     .update(JSON.stringify([profile, url, 'me'])).digest('hex');
@@ -295,4 +320,98 @@ test('state keyed on the URL text with a trailing slash is still found and migra
   await op({action: 'direction', direction: 'upload'});
   assert.equal(records.get(keyOf('https://dav.example/sync')).payload.direction, 'upload',
     'the next write lands on the normalized key');
+});
+
+test('sync snapshots the plugin configuration before publishing it', async () => {
+  const {op, save, profile, backups, remote} = await fixture({bundles: [{name: 'local-plugin', version: '1.0.0', spec: 'local-plugin@1.0.0', source: 'local-plugin@1.0.0', enabled: true}], remote: []});
+  await save();
+  const synced = await op({action: 'sync'});
+  const local = await readdir(join(profile, '.dsh-sync', 'backups'));
+  assert.equal(local.length, 1, 'one local snapshot exists');
+  assert.equal(local[0], synced.backup, 'the reported id names the local folder');
+  const listed = backups();
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].id, synced.backup);
+  assert.equal(listed[0].files.length, 1, 'the temp profile has no package files, only the plugin list');
+  const plugins = JSON.parse(await readFile(join(profile, '.dsh-sync', 'backups', synced.backup, 'plugins.json'), 'utf8'));
+  assert.deepEqual(plugins.entries.map(entry => entry.name), ['local-plugin']);
+  assert.deepEqual(remote.map(entry => entry.name), ['local-plugin'], 'the manifest is still published');
+});
+
+test('download direction keeps a local snapshot without uploading one', async () => {
+  const {op, save, profile, backups} = await fixture();
+  await save();
+  await op({action: 'direction', direction: 'download'});
+  const synced = await op({action: 'sync'});
+  assert.equal((await readdir(join(profile, '.dsh-sync', 'backups'))).length, 1);
+  assert.equal(backups().length, 0, 'a download-only target never writes backups');
+  assert.equal(synced.backup.length, 15);
+});
+
+test('a failed backup upload blocks the sync instead of publishing first', async () => {
+  const {op, save, remote, failBackups} = await fixture({bundles: [{name: 'local-plugin', version: '1.0.0', spec: 'local-plugin@1.0.0', source: 'local-plugin@1.0.0', enabled: true}], remote: []});
+  await save();
+  failBackups('WebDAV MKCOL failed (HTTP 507)');
+  await assert.rejects(op({action: 'sync'}), /HTTP 507/);
+  assert.deepEqual(remote, [], 'the manifest is untouched when the backup cannot be written');
+});
+
+test('retention zero keeps snapshots local and never uploads them', async () => {
+  const {op, save, profile, backups} = await fixture();
+  await save({retention: 0});
+  await op({action: 'sync'});
+  assert.equal((await readdir(join(profile, '.dsh-sync', 'backups'))).length, 1);
+  assert.equal(backups().length, 0);
+});
+
+test('backups lists remote snapshots and local staging copies', async () => {
+  const {op, save, failBackups} = await fixture();
+  await save();
+  await op({action: 'sync'});
+  const listed = await op({action: 'backups'});
+  assert.equal(listed.snapshots.length, 1);
+  assert.equal(listed.local.length, 1);
+  assert.equal(listed.retention, 10);
+  assert.equal(listed.error, undefined);
+  failBackups('WebDAV backup GET failed (HTTP 503)');
+  const offline = await op({action: 'backups'});
+  assert.equal(offline.snapshots.length, 0);
+  assert.equal(offline.local.length, 1, 'local copies are still listed');
+  assert.equal(offline.error, 'WebDAV backup GET failed (HTTP 503)');
+});
+
+test('restore reinstalls the recorded plugins, enables rows and never uninstalls', async () => {
+  const {op, save, state, calls, backups} = await fixture({bundles: [
+    {name: 'local-plugin', version: '1.0.0', spec: 'local-plugin@1.0.0', source: 'local-plugin@1.0.0', enabled: true},
+  ]});
+  await save();
+  await op({action: 'sync'});
+  const id = backups()[0].id;
+  // Drift after the snapshot: the plugin was disabled and another one appeared.
+  state.bundles.find(bundle => bundle.name === 'local-plugin').enabled = false;
+  state.bundles.push({name: 'extra-plugin', version: '1.0.0', spec: 'extra-plugin@1.0.0', source: 'extra-plugin@1.0.0', enabled: true});
+  const restored = await op({action: 'restore', id});
+  assert.deepEqual(restored.outcomes, [{name: 'local-plugin', kind: 'enable', status: 'applied'}]);
+  assert.deepEqual(restored.extra, ['extra-plugin']);
+  assert.ok(calls.some(call => call[0] === 'setBundleEnabled' && call[1] === 'local-plugin' && call[2] === true));
+  assert.notEqual(restored.safety, id, 'the pre-restore state got its own snapshot');
+  assert.deepEqual(Object.keys(restored.overview.lastRestore), ['at', 'id']);
+});
+
+test('restore falls back to the local copy when the remote one is gone', async () => {
+  const {op, save, backups, dropRemoteBackups} = await fixture({bundles: [{name: 'local-plugin', version: '1.0.0', spec: 'local-plugin@1.0.0', source: 'local-plugin@1.0.0', enabled: true}]});
+  await save();
+  await op({action: 'sync'});
+  const id = backups()[0].id;
+  dropRemoteBackups();
+  const restored = await op({action: 'restore', id});
+  assert.deepEqual(restored.outcomes, [], 'the configuration already matches');
+  assert.equal(restored.id, id);
+});
+
+test('restore rejects an unknown or malformed backup id', async () => {
+  const {op, save} = await fixture();
+  await save();
+  await assert.rejects(op({action: 'restore', id: '../etc'}), /Invalid backup id/);
+  await assert.rejects(op({action: 'restore', id: '20260101-000000'}), /not on the remote side/);
 });

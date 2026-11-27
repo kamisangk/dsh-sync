@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { classifyRemote, createGit, localGitRuntime } from '../lib/git.js'
+import { describeSnapshot } from '../lib/backup.js'
 
 const entry = (name, version = '1.0.0', enabled = true) => ({name, version, spec: `${name}@${version}`, enabled})
 
@@ -14,6 +15,8 @@ function run(cwd, args, input) {
       if (error) reject(new Error(`${args.join(' ')}: ${String(stderr)}`))
       else resolve(String(stdout).trim())
     })
+    // git may exit before reading stdin; the EPIPE is not a test failure.
+    child.stdin.on('error', () => {})
     child.stdin.end(input ?? '')
   })
 }
@@ -271,4 +274,47 @@ test('a failed remote read is reported without leaking the remote credentials', 
   }
   const client = createGit({repo: 'https://git.example.com/team/repo.git', token: 'secret-token', runtime: fake})
   await assert.rejects(client.read(), error => error.name === 'GitError' && !String(error.message).includes('secret-token'))
+})
+test('backups publish under backup/plugins and keep unrelated root files', async () => {
+  const remote = await bareRemote()
+  try {
+    await seedWorktree(remote.root, remote.path, {'README.md': 'keep me\n', 'notes/todo.txt': 'x\n'})
+    const client = local(remote.path)
+    const files = {
+      'package.json': Buffer.from('{"name":"demo","version":"1.0.0"}\n'),
+      'plugins.json': Buffer.from('{"version":1,"entries":[]}\n'),
+    }
+    await client.backupWrite(describeSnapshot('20260101-000000', files), files, 3)
+    const index = await client.backupRead()
+    assert.deepEqual(index.snapshots.map(snapshot => snapshot.id), ['20260101-000000'])
+    const fetched = await client.backupFetch('20260101-000000')
+    assert.deepEqual(fetched['package.json'], files['package.json'])
+    const listing = await run(remote.path, ['ls-tree', '-r', '--name-only', 'main'])
+    for (const path of ['README.md', 'notes/todo.txt', 'backup/plugins/index.json', 'backup/plugins/20260101-000000/package.json']) {
+      assert.ok(listing.split('\n').includes(path), path)
+    }
+    assert.deepEqual(await client.read(), {entries: [], historyCount: null}, 'the manifest keeps reading as empty')
+    await client.update(() => [entry('a')])
+    const after = (await run(remote.path, ['ls-tree', '-r', '--name-only', 'main'])).split('\n')
+    assert.ok(after.includes('dsh-sync.json'), 'the manifest commit keeps the backup tree')
+    assert.ok(after.includes('backup/plugins/20260101-000000/plugins.json'))
+    assert.ok(after.includes('README.md'))
+  } finally { await remote.cleanup() }
+})
+
+test('backup retention removes old snapshot paths from the branch', async () => {
+  const remote = await bareRemote()
+  try {
+    const client = local(remote.path)
+    const first = {'plugins.json': Buffer.from('{"version":1,"entries":[]}\n')}
+    await client.backupWrite(describeSnapshot('20260101-000000', first), first, 1)
+    const second = {'plugins.json': Buffer.from('{"version":1,"entries":[]}\n')}
+    await client.backupWrite(describeSnapshot('20260101-000001', second), second, 1)
+    const index = await client.backupRead()
+    assert.deepEqual(index.snapshots.map(snapshot => snapshot.id), ['20260101-000001'])
+    const listing = (await run(remote.path, ['ls-tree', '-r', '--name-only', 'main'])).split('\n')
+    assert.ok(!listing.some(path => path.includes('20260101-000000')), 'the dropped snapshot folder is gone')
+    await assert.rejects(client.backupFetch('20260101-000000'), /not on the remote side/)
+    assert.deepEqual(await client.read(), {entries: [], historyCount: null})
+  } finally { await remote.cleanup() }
 })

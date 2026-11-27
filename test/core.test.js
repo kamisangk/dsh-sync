@@ -1,15 +1,23 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createDav, parseEntry } from '../lib/core.js'
+import { describeSnapshot } from '../lib/backup.js'
 
 const config = { url: 'https://dav.example.net/a/sync', username: 'user', password: 'pass' }
 const manifestPath = '/a/sync/dsh-sync.json'
+const indexPath = '/a/sync/backup/plugins/index.json'
+const backupFiles = () => ({
+  'package.json': Buffer.from('{"name":"demo","version":"1.0.0"}\n'),
+  'plugins.json': Buffer.from('{"version":1,"entries":[]}\n'),
+})
 const sha = 'abcdef0123456789'.repeat(2) + 'abcdef01'
 const npm = (name, version = '1.0.0', enabled = true) => ({ name, version, spec: `${name}@${version}`, enabled })
 
-function mockDav({ ignoreMatch = false, ignoreNone = false, weakEtag = false, beforePut } = {}) {
+function mockDav({ ignoreMatch = false, ignoreNone = false, weakEtag = false, beforePut, rejectIndexOnce = false } = {}) {
   const files = new Map()
   const requests = []
+  const collections = new Set(['/a/sync/'])
+  let indexRejections = 0
   let revision = 0
   const tag = () => `${weakEtag ? 'W/' : ''}"rev-${++revision}"`
   const fetcher = async (url, init) => {
@@ -24,8 +32,20 @@ function mockDav({ ignoreMatch = false, ignoreNone = false, weakEtag = false, be
     const { method, body } = init
     const record = { path, method, body, headers }
     requests.push(record)
+    if (method === 'MKCOL') {
+      if (!path.endsWith('/')) return new Response(null, { status: 409 })
+      if (collections.has(path)) return new Response(null, { status: 405 })
+      const parent = path.replace(/[^/]+\/$/, '')
+      if (!collections.has(parent)) return new Response(null, { status: 409 })
+      collections.add(path)
+      return new Response(null, { status: 201 })
+    }
     if (method === 'PUT') {
-      if (path === manifestPath && beforePut) await beforePut(record)
+      if (beforePut) await beforePut(record)
+      if (rejectIndexOnce && path === indexPath && indexRejections === 0) {
+        indexRejections += 1
+        return new Response(null, { status: 412 })
+      }
       const previous = files.get(path)
       const match = headers.get('if-match')
       if (!ignoreMatch && match && previous?.etag !== match ||
@@ -47,6 +67,7 @@ function mockDav({ ignoreMatch = false, ignoreNone = false, weakEtag = false, be
   }
   return {
     fetcher, requests, files,
+    collections,
     seed(document) { files.set(manifestPath, { body: JSON.stringify(document), etag: tag() }) },
     manifest() { return JSON.parse(files.get(manifestPath).body) },
     writes() { return requests.filter(({ method, path }) => method === 'PUT' && path === manifestPath) },
@@ -178,4 +199,67 @@ test('invalid remote documents, oversized streams, and redirects are rejected', 
   for (const url of ['http://dav.example.net/', 'https://name:secret@dav.example.net/', 'https://dav.example.net/?foo=bar', 'https://dav.example.net/#a']) {
     assert.throws(() => createDav({ ...config, url }), /HTTPS collection|Invalid WebDAV collection/)
   }
+})
+
+test('backups write their files plus an index and come back verified', async () => {
+  const server = mockDav()
+  const dav = createDav(config, server.fetcher)
+  const files = backupFiles()
+  const entry = describeSnapshot('20260101-000000', files)
+  await dav.backupWrite(entry, files, 5)
+  assert.deepEqual([...server.files.keys()].sort(), [
+    '/a/sync/backup/plugins/20260101-000000/package.json',
+    '/a/sync/backup/plugins/20260101-000000/plugins.json',
+    indexPath,
+  ])
+  const index = await dav.backupRead()
+  assert.equal(index.snapshots.length, 1)
+  assert.deepEqual(index.snapshots[0].files.map(file => file.path), ['package.json', 'plugins.json'])
+  const fetched = await dav.backupFetch('20260101-000000')
+  assert.deepEqual(fetched['package.json'], files['package.json'])
+  assert.deepEqual(fetched['plugins.json'], files['plugins.json'])
+})
+
+test('backup retention removes the dropped folder from the collection', async () => {
+  const server = mockDav()
+  const dav = createDav(config, server.fetcher)
+  const first = backupFiles()
+  await dav.backupWrite(describeSnapshot('20260101-000000', first), first, 1)
+  const second = {...backupFiles(), 'package.json': Buffer.from('{"name":"demo","version":"2.0.0"}\n')}
+  await dav.backupWrite(describeSnapshot('20260101-000001', second), second, 1)
+  const index = await dav.backupRead()
+  assert.deepEqual(index.snapshots.map(snapshot => snapshot.id), ['20260101-000001'])
+  for (const path of server.files.keys()) assert.ok(!path.includes('20260101-000000'), path)
+  await assert.rejects(dav.backupFetch('20260101-000000'), /not on the remote side/)
+})
+
+test('a corrupted backup file is refused instead of restored', async () => {
+  const server = mockDav()
+  const dav = createDav(config, server.fetcher)
+  const files = backupFiles()
+  await dav.backupWrite(describeSnapshot('20260101-000000', files), files, 5)
+  const stored = server.files.get('/a/sync/backup/plugins/20260101-000000/plugins.json')
+  stored.body = Buffer.from('{"version":1,"entries":[{"name":"evil"}]}\n')
+  await assert.rejects(dav.backupFetch('20260101-000000'), /corrupt plugins.json/)
+})
+
+test('the backup index is rewritten when another writer wins the first attempt', async () => {
+  const server = mockDav({ rejectIndexOnce: true })
+  const dav = createDav(config, server.fetcher)
+  const files = backupFiles()
+  await dav.backupWrite(describeSnapshot('20260101-000000', files), files, 5)
+  const indexPuts = server.requests.filter(({ method, path }) => method === 'PUT' && path === indexPath)
+  assert.equal(indexPuts.length, 2, 'the 412 forced a second read-and-merge pass')
+  assert.equal((await dav.backupRead()).snapshots.length, 1)
+})
+
+test('backup ids and retention are validated before any request', async () => {
+  const server = mockDav()
+  const dav = createDav(config, server.fetcher)
+  const files = backupFiles()
+  assert.throws(() => describeSnapshot('../x', files), /Invalid snapshot id/)
+  const entry = describeSnapshot('20260101-000000', files)
+  await assert.rejects(dav.backupWrite(entry, files, 0), /between 1 and 50/)
+  await assert.rejects(dav.backupWrite(entry, files, 51), /between 1 and 50/)
+  assert.equal(server.requests.length, 0)
 })
