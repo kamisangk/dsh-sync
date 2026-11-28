@@ -347,40 +347,49 @@ window.__ModuleLoader__.load({
     };
 
     const style = `
-      .kds-sync {color:var(--dsw-alias-label-primary);display:grid;gap:16px;font:inherit;min-width:0}
+      .kds-sync{color:var(--dsw-alias-label-primary);display:grid;gap:14px;font:inherit;min-width:0}
       .kds-sync h2,.kds-sync h3,.kds-sync h4,.kds-sync p{margin:0}
-      .kds-sync h2{font-size:18px}.kds-sync h3{font-size:14px}
+      .kds-sync h2{font-size:19px;font-weight:600;letter-spacing:-0.01em}
+      .kds-sync h3{font-size:14px;font-weight:600}
+      .kds-sync h4{font-size:13px;font-weight:600}
       .kds-sync section,.kds-sync form{display:grid;gap:12px;min-width:0}
-      .kds-sync .kds-tabs{display:flex;gap:4px;border-block-end:1px solid var(--dsw-alias-border-l1)}
-      .kds-sync .kds-tab{min-height:34px;padding:6px 14px;border:0;border-block-end:2px solid transparent;border-radius:0;background:none;color:var(--dsw-alias-label-secondary)}
-      .kds-sync .kds-tab[aria-pressed=true]{color:var(--dsw-alias-label-primary);border-block-end-color:var(--dsw-alias-brand-primary)}
-      .kds-sync button{box-sizing:border-box;min-height:34px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:inherit;background:var(--dsw-alias-bg-layer-1);font:inherit;padding:6px 10px}
-      .kds-sync button:enabled{cursor:pointer}.kds-sync button:enabled:hover{background:var(--dsw-alias-bg-layer-2)}
-      .kds-sync button:disabled{opacity:.5}
-      .kds-sync button.kds-primary{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
-      .kds-sync .kds-ghost{border-color:transparent;background:none;color:var(--dsw-alias-brand-primary)}
-      .kds-sync .kds-module{display:grid;gap:12px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);min-width:0}
+      .kds-sync .kds-topbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 16px;padding-bottom:10px;border-block-end:1px solid var(--dsw-alias-border-l1)}
+      .kds-sync .kds-tabs{display:inline-flex;gap:4px;padding:3px;border-radius:10px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1)}
+      .kds-sync .kds-tab{min-height:30px;padding:4px 14px;border:1px solid transparent;border-radius:7px;background:none;color:var(--dsw-alias-label-secondary);font-size:13px;font-weight:500;transition:all .15s ease}
+      .kds-sync .kds-tab[aria-pressed=true]{background:var(--dsw-alias-bg-layer-1);border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px rgba(0,0,0,.18)}
+      .kds-sync .kds-conn-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 14px;padding:10px 14px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1)}
+      .kds-sync .kds-conn-left{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+      .kds-sync .kds-pill{font-size:12px;padding:2px 9px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}
+      .kds-sync button{box-sizing:border-box;min-height:32px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;color:inherit;background:var(--dsw-alias-bg-layer-2);font:inherit;font-size:13px;padding:5px 12px;transition:all .15s ease;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+      .kds-sync button:enabled{cursor:pointer}.kds-sync button:enabled:hover{filter:brightness(1.1);border-color:var(--dsw-alias-label-secondary)}
+      .kds-sync button:disabled{opacity:.45}
+      .kds-sync button.kds-primary{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);color:#fff;font-weight:500}
+      .kds-sync button.kds-primary:enabled:hover{filter:brightness(1.08);border-color:var(--dsw-alias-brand-primary)}
+      .kds-sync button.kds-ghost{border-color:transparent;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 10px}
+      .kds-sync button.kds-ghost:enabled:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-color:transparent;filter:none}
+      .kds-sync .kds-module{display:grid;gap:10px;padding:14px 16px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);min-width:0;transition:border-color .15s ease}
+      .kds-sync .kds-module:hover{border-color:var(--dsw-alias-border-l2)}
       .kds-sync .kds-module.kds-failed{border-inline-start:3px solid var(--dsw-alias-state-error-primary)}
       .kds-sync .kds-module-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;min-width:0}
       .kds-sync .kds-module-title{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+      .kds-sync .kds-module-foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;padding-top:10px;border-block-start:1px solid var(--dsw-alias-border-l1)}
       .kds-sync .kds-dot{width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-state-idle-primary);flex:none}
-      .kds-sync .kds-dot-ok{background:var(--dsw-alias-state-success-primary)}
-      .kds-sync .kds-dot-failed{background:var(--dsw-alias-state-error-primary)}
-      .kds-sync .kds-dot-pending{background:var(--dsw-alias-state-warn-primary)}
-      .kds-sync .kds-badge{font-size:12px;padding:2px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
-      .kds-sync h4{font-size:13px}
+      .kds-sync .kds-dot-ok{background:var(--dsw-alias-state-success-primary);box-shadow:0 0 0 3px rgba(92,186,133,.16)}
+      .kds-sync .kds-dot-failed{background:var(--dsw-alias-state-error-primary);box-shadow:0 0 0 3px rgba(227,107,107,.18)}
+      .kds-sync .kds-dot-pending{background:var(--dsw-alias-state-warn-primary);box-shadow:0 0 0 3px rgba(226,176,74,.16)}
+      .kds-sync .kds-badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
+      .kds-sync .kds-badge-ok{color:var(--dsw-alias-state-success-primary);background:rgba(92,186,133,.14)}
+      .kds-sync .kds-badge-failed{color:var(--dsw-alias-state-error-primary);background:rgba(227,107,107,.14)}
+      .kds-sync .kds-badge-pending{color:var(--dsw-alias-state-warn-primary);background:rgba(226,176,74,.14)}
       .kds-sync .kds-feedback{font-size:12px;color:var(--dsw-alias-label-secondary)}
       .kds-sync .kds-feedback[data-tone=ok]{color:var(--dsw-alias-state-success-primary)}
       .kds-sync .kds-feedback[data-tone=error]{color:var(--dsw-alias-state-error-primary)}
-      .kds-sync .kds-badge-ok{color:var(--dsw-alias-state-success-primary)}
-      .kds-sync .kds-badge-failed{color:var(--dsw-alias-state-error-primary)}
-      .kds-sync .kds-badge-pending{color:var(--dsw-alias-state-warn-primary)}
-      .kds-sync .kds-note{color:var(--dsw-alias-label-secondary);font-size:12px}
-      .kds-sync .kds-module-meta{display:flex;gap:8px 16px;flex-wrap:wrap;align-items:center;min-width:0}
+      .kds-sync .kds-note{color:var(--dsw-alias-label-secondary);font-size:12px;font-variant-numeric:tabular-nums}
+      .kds-sync .kds-module-meta{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;min-width:0}
       .kds-sync .kds-seg{display:inline-flex;padding:2px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
-      .kds-sync .kds-seg button{min-height:28px;padding:2px 10px;border:1px solid transparent;background:none;border-radius:6px;font-size:12px;color:var(--dsw-alias-label-secondary)}
-      .kds-sync .kds-seg button[aria-pressed=true]{background:var(--dsw-alias-bg-layer-1);border-color:var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary)}
-      .kds-sync .kds-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+      .kds-sync .kds-seg button{min-height:26px;padding:2px 10px;border:1px solid transparent;background:none;border-radius:6px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+      .kds-sync .kds-seg button[aria-pressed=true]{background:var(--dsw-alias-bg-layer-1);border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);font-weight:500}
+      .kds-sync .kds-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
       .kds-sync .kds-fields{display:grid;gap:14px 16px;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
       .kds-sync .kds-field{display:grid;gap:6px;align-content:start;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary)}
       .kds-sync .kds-field-wide{grid-column:1/-1}
@@ -390,30 +399,35 @@ window.__ModuleLoader__.load({
       .kds-sync .kds-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding-block-start:4px}
       @media (max-width:640px){.kds-sync .kds-fields{grid-template-columns:1fr}.kds-sync .kds-field-wide{grid-column:auto}}
       .kds-sync input:not([type=checkbox]),.kds-sync select{box-sizing:border-box;width:100%;height:34px;min-height:34px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit}
-      .kds-sync input[type=checkbox]{accent-color:var(--dsw-alias-brand-primary)}
-      .kds-sync .kds-table{overflow-x:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}
-      .kds-sync table{width:100%;border-collapse:collapse;text-align:start}
-      .kds-sync th,.kds-sync td{padding:8px 10px;text-align:start;vertical-align:top;border-block-end:1px solid var(--dsw-alias-border-l1);overflow-wrap:anywhere}
-      .kds-sync th{font-size:12px;color:var(--dsw-alias-label-secondary);font-weight:600}
+      .kds-sync input[type=checkbox]{width:15px;height:15px;accent-color:var(--dsw-alias-brand-primary);cursor:pointer;margin:0}
+      .kds-sync .kds-table{overflow-x:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1)}
+      .kds-sync table{width:100%;border-collapse:collapse;text-align:start;font-variant-numeric:tabular-nums}
+      .kds-sync thead{background:var(--dsw-alias-bg-layer-2)}
+      .kds-sync th,.kds-sync td{padding:10px 12px;text-align:start;vertical-align:middle;border-block-end:1px solid var(--dsw-alias-border-l1)}
+      .kds-sync th{font-size:12px;color:var(--dsw-alias-label-secondary);font-weight:600;white-space:nowrap}
+      .kds-sync tbody tr{transition:background .12s ease}
+      .kds-sync tbody tr:hover{background:rgba(255,255,255,.025)}
       .kds-sync tbody tr:last-child td{border-block-end:0}
-      .kds-sync td small{display:block;margin-top:4px;color:var(--dsw-alias-label-secondary)}
-      .kds-sync .kds-endpoint{overflow-wrap:anywhere}
+      .kds-sync td small{display:block;margin-top:3px;color:var(--dsw-alias-label-secondary)}
+      .kds-sync .kds-nowrap{white-space:nowrap}
+      .kds-sync .kds-endpoint{overflow-wrap:anywhere;font-size:13px;color:var(--dsw-alias-label-primary)}
       .kds-sync .kds-error{color:var(--dsw-alias-state-error-primary);font-size:12px}
-      .kds-sync button.kds-danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary);background:rgba(220,38,38,.12)}
-      .kds-sync button.kds-danger:enabled:hover{background:rgba(220,38,38,.2)}
-      .kds-sync button.kds-link-btn{min-height:26px;padding:2px 6px;border-color:transparent;background:none;font-size:13px}
+      .kds-sync button.kds-danger{border-color:rgba(227,107,107,.55);color:var(--dsw-alias-state-error-primary);background:rgba(227,107,107,.14);font-weight:500}
+      .kds-sync button.kds-danger:enabled:hover{background:rgba(227,107,107,.24);border-color:var(--dsw-alias-state-error-primary);filter:none}
+      .kds-sync button.kds-link-btn{min-height:26px;padding:3px 8px;border-color:transparent;background:transparent;font-size:13px;color:var(--dsw-alias-brand-primary);font-weight:500}
+      .kds-sync button.kds-link-btn:enabled:hover{background:rgba(111,143,255,.12);border-color:transparent;filter:none}
       .kds-sync button.kds-link-danger{color:var(--dsw-alias-state-error-primary)}
-      .kds-sync .kds-modal-backdrop{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);display:grid;place-items:center;padding:20px}
-      .kds-sync .kds-modal{box-sizing:border-box;width:min(780px,100%);max-height:85vh;display:grid;grid-template-rows:auto auto 1fr auto;gap:12px;padding:18px 20px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 18px 48px rgba(0,0,0,.35);overflow:hidden}
+      .kds-sync button.kds-link-danger:enabled:hover{background:rgba(227,107,107,.12)}
+      .kds-sync .kds-modal-backdrop{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.62);backdrop-filter:blur(3px);display:grid;place-items:center;padding:20px}
+      .kds-sync .kds-modal{box-sizing:border-box;width:min(820px,100%);max-height:85vh;display:grid;grid-template-rows:auto auto 1fr auto;gap:14px;padding:20px 22px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 24px 64px rgba(0,0,0,.48);overflow:hidden}
       .kds-sync .kds-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
-      .kds-sync .kds-modal-head h3{font-size:16px;font-weight:600}
-      .kds-sync .kds-modal-close{min-height:28px;min-width:28px;padding:0;border-color:transparent;background:none;font-size:18px;line-height:1;color:var(--dsw-alias-label-secondary)}
+      .kds-sync .kds-modal-head h3{font-size:17px;font-weight:600;letter-spacing:-0.01em}
+      .kds-sync .kds-modal-close{min-height:30px;min-width:30px;padding:0;border-color:transparent;background:transparent;border-radius:8px;font-size:18px;line-height:1;color:var(--dsw-alias-label-secondary)}
+      .kds-sync .kds-modal-close:enabled:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-color:transparent;filter:none}
       .kds-sync .kds-modal-body{overflow:auto;min-height:0;display:grid;gap:10px;align-content:start}
-      .kds-sync .kds-modal-foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding-top:4px}
-      .kds-sync .kds-filename{max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle}
-      .kds-sync .kds-cell-name{display:flex;align-items:center;gap:6px;min-width:0}
-      .kds-sync .kds-warn{color:var(--dsw-alias-state-warn-primary)}
-      .kds-sync .kds-error{color:var(--dsw-alias-state-error-primary)}
+      .kds-sync .kds-modal-foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding-top:6px;border-block-start:1px solid var(--dsw-alias-border-l1)}
+      .kds-sync .kds-filename{max-width:250px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+      .kds-sync .kds-cell-name{display:flex;align-items:center;gap:8px;min-width:0}
     `;
 
     // ---- helpers ------------------------------------------------------
@@ -957,14 +971,8 @@ window.__ModuleLoader__.load({
             h('div', {className: 'kds-module-title'},
               h('span', {className: `kds-dot kds-dot-${kind === 'ok' ? 'ok' : kind === 'failed' ? 'failed' : kind === 'pending' ? 'pending' : 'idle'}`, 'aria-hidden': true}),
               h('h3', {id: `${id}-plugins`}, t('scope_plugins')),
-              configured ? statusBadge(kind) : badge('idle', 'badge_unconfigured')),
-            h('div', {className: 'kds-row'},
-              h('span', {className: 'kds-note'}, meta))),
-          kind === 'failed' && h('p', {className: 'kds-error'}, t('last_attempt_failed').replace('{error}', failReason)),
-          h('div', {className: 'kds-module-meta'},
-            h('span', {className: 'kds-note'}, attempt?.at
-              ? t('last_attempt').replace('{time}', new Date(attempt.at).toLocaleString())
-              : t('never_synced')),
+              configured ? statusBadge(kind) : badge('idle', 'badge_unconfigured'),
+              h('span', {className: 'kds-note'}, meta)),
             h('div', {className: 'kds-seg', role: 'group', 'aria-label': t('transport')},
               ...DIRECTIONS.map(item => h('button', {
                 key: item.id, type: 'button',
@@ -972,16 +980,20 @@ window.__ModuleLoader__.load({
                 disabled: !!busy || !configured || dirty,
                 onClick: () => changeDirection(item.id),
               }, t(item.label))))),
+          kind === 'failed' && h('p', {className: 'kds-error'}, t('last_attempt_failed').replace('{error}', failReason)),
           feedback(),
-          h('div', {className: 'kds-row'},
-            configured && button(kind === 'failed' ? 'retry' : 'sync', syncNow, blocked, {className: 'kds-primary'}),
-            configured && h('button', {
-              type: 'button', className: 'kds-ghost', disabled: blocked,
-              onClick: () => (plan ? setPlanOpen(!planOpen) : preview()),
-              'aria-expanded': !!plan && planOpen,
-            }, plan && planOpen ? t('hide_details') : t('show_details')),
-            configured && button('backup_manage', () => openBackupModal('plugins'), blocked, {className: 'kds-ghost'}),
-            button('refresh', load, !!busy || dirty, {className: 'kds-ghost'})),
+          h('div', {className: 'kds-module-foot'},
+            h('span', {className: 'kds-note'}, attempt?.at
+              ? t('last_attempt').replace('{time}', formatDateTime(attempt.at))
+              : t('never_synced')),
+            h('div', {className: 'kds-row'},
+              configured && button('backup_manage', () => openBackupModal('plugins'), blocked, {className: 'kds-ghost'}),
+              configured && h('button', {
+                type: 'button', className: 'kds-ghost', disabled: blocked,
+                onClick: () => (plan ? setPlanOpen(!planOpen) : preview()),
+                'aria-expanded': !!plan && planOpen,
+              }, plan && planOpen ? t('hide_details') : t('show_details')),
+              configured && button(kind === 'failed' ? 'retry' : 'sync', syncNow, blocked, {className: 'kds-primary'}))),
           plan && planOpen && planView(),
           outcomes.length > 0 && h('section', {'aria-label': t('outcomes')},
             h('h4', null, t('outcomes')),
@@ -1115,12 +1127,8 @@ window.__ModuleLoader__.load({
                 h('div', {className: 'kds-module-title'},
                   h('span', {className: `kds-dot kds-dot-${kind === 'ok' ? 'ok' : kind === 'failed' ? 'failed' : kind === 'pending' ? 'pending' : 'idle'}`, 'aria-hidden': true}),
                   h('h3', {id: `${id}-${cat}`}, t(`scope_${cat}`)),
-                  configured ? statusBadge(kind) : badge('idle', 'badge_unconfigured')),
-                h('span', {className: 'kds-note'}, meta)),
-              h('div', {className: 'kds-module-meta'},
-                h('span', {className: 'kds-note'}, attempt?.at
-                  ? t('last_attempt').replace('{time}', new Date(attempt.at).toLocaleString())
-                  : t('never_synced')),
+                  configured ? statusBadge(kind) : badge('idle', 'badge_unconfigured'),
+                  h('span', {className: 'kds-note'}, meta)),
                 h('div', {className: 'kds-seg', role: 'group', 'aria-label': t(`scope_${cat}`)},
                   ...DIRECTIONS.map(item => h('button', {
                     key: item.id, type: 'button',
@@ -1128,14 +1136,18 @@ window.__ModuleLoader__.load({
                     disabled: !!busy || !configured || dirty,
                     onClick: () => changeModuleDirection(cat, item.id),
                   }, t(item.label))))),
-              h('div', {className: 'kds-row'},
-                configured && button(kind === 'failed' ? 'retry' : 'sync', () => syncModule(cat), blocked, {className: 'kds-primary'}),
-                configured && h('button', {
-                  type: 'button', className: 'kds-ghost', disabled: blocked,
-                  onClick: () => (curPlan ? setModOpen(prev => ({...prev, [cat]: !prev[cat]})) : previewModule(cat)),
-                  'aria-expanded': !!curPlan && isOpen,
-                }, curPlan && isOpen ? t('hide_details') : t('show_details')),
-                configured && button('backup_manage', () => openBackupModal(cat), blocked, {className: 'kds-ghost'})),
+              h('div', {className: 'kds-module-foot'},
+                h('span', {className: 'kds-note'}, attempt?.at
+                  ? t('last_attempt').replace('{time}', formatDateTime(attempt.at))
+                  : t('never_synced')),
+                h('div', {className: 'kds-row'},
+                  configured && button('backup_manage', () => openBackupModal(cat), blocked, {className: 'kds-ghost'}),
+                  configured && h('button', {
+                    type: 'button', className: 'kds-ghost', disabled: blocked,
+                    onClick: () => (curPlan ? setModOpen(prev => ({...prev, [cat]: !prev[cat]})) : previewModule(cat)),
+                    'aria-expanded': !!curPlan && isOpen,
+                  }, curPlan && isOpen ? t('hide_details') : t('show_details')),
+                  configured && button(kind === 'failed' ? 'retry' : 'sync', () => syncModule(cat), blocked, {className: 'kds-primary'}))),
               curPlan && isOpen && modulePlanView(cat, curPlan),
               curOutcomes.length > 0 && h('section', {'aria-label': t('outcomes')},
                 h('h4', null, t('outcomes')),
@@ -1218,8 +1230,8 @@ window.__ModuleLoader__.load({
           h('td', null, h('div', {className: 'kds-cell-name'},
             h('span', {className: 'kds-filename', title: item.name}, item.name),
             item.location === 'local' && badge('idle', 'backup_local_only'))),
-          h('td', null, formatDateTime(item.createdAt, item.id)),
-          h('td', null, formatBytes(item.totalBytes)),
+          h('td', {className: 'kds-nowrap'}, formatDateTime(item.createdAt, item.id)),
+          h('td', {className: 'kds-nowrap'}, formatBytes(item.totalBytes)),
           h('td', null, h('div', {className: 'kds-row'},
             h('button', {
               type: 'button', className: 'kds-link-btn', disabled: blocked,
@@ -1395,11 +1407,17 @@ window.__ModuleLoader__.load({
 
       return h('div', {className: 'kds-sync', 'aria-busy': busy ? 'true' : undefined},
         h('style', null, style),
-        h('h2', null, t('title')),
-        h('div', {className: 'kds-tabs', role: 'group', 'aria-label': t('tabs_label')},
-          h('button', {type: 'button', className: 'kds-tab', 'aria-pressed': page === 'sync', onClick: () => go('sync')}, t('tab_sync')),
-          h('button', {type: 'button', className: 'kds-tab', 'aria-pressed': page === 'connection', onClick: () => go('connection')}, t('tab_connection'))),
-        h('p', {className: 'kds-note kds-endpoint'}, summary),
+        h('div', {className: 'kds-topbar'},
+          h('h2', null, t('title')),
+          h('div', {className: 'kds-tabs', role: 'group', 'aria-label': t('tabs_label')},
+            h('button', {type: 'button', className: 'kds-tab', 'aria-pressed': page === 'sync', onClick: () => go('sync')}, t('tab_sync')),
+            h('button', {type: 'button', className: 'kds-tab', 'aria-pressed': page === 'connection', onClick: () => go('connection')}, t('tab_connection')))),
+        h('div', {className: 'kds-conn-bar'},
+          h('div', {className: 'kds-conn-left'},
+            h('span', {className: `kds-dot ${configured ? 'kds-dot-ok' : ''}`, 'aria-hidden': true}),
+            h('span', {className: 'kds-endpoint'}, configured ? `${t(saved.transport === 'git' ? 'transport_git' : 'transport_webdav')} · ${targetLabel(saved)}` : t('connection_missing')),
+            configured && h('span', {className: 'kds-pill'}, `${t('retention')} ${saved?.retention ?? 10}`)),
+          configured && button('refresh', load, !!busy || dirty, {className: 'kds-ghost'})),
         page === 'sync' ? syncPage() : connectionPage(),
         backupModal());
     }
